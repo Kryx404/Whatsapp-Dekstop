@@ -223,14 +223,31 @@ func (w *webview) callbinding(d rpcMessage) (interface{}, error) {
 
 func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 	if w, ok := getWindowContext(hwnd).(*webview); ok {
+		// w.browser is only assigned after the embedded Chromium object has
+		// finished initialising, but this window procedure is already live
+		// while CreateWithOptions waits for that inside its own message pump.
+		// Windows happily dispatches to it in that window of time: clicking or
+		// dragging the title bar enters the modal move/size loop, which sends
+		// WM_MOVE/WM_SIZE/WM_ACTIVATE straight back here. Calling a method on
+		// the nil interface panicked and took the whole process down with it
+		// (reported three times against v1.6.0, where an account switch
+		// rebuilds the window and widens the exposure). Messages that only
+		// need the HWND keep working; the rest fall through to DefWindowProc.
+		hasBrowser := w.browser != nil
 		switch msg {
 		case w32.WMMove, w32.WMMoving:
+			if !hasBrowser {
+				break
+			}
 			_ = w.browser.NotifyParentWindowPositionChanged()
 		case w32.WMNCLButtonDown:
 			_, _, _ = w32.User32SetFocus.Call(w.hwnd)
 			r, _, _ := w32.User32DefWindowProcW.Call(hwnd, msg, wp, lp)
 			return r
 		case w32.WMSize:
+			if !hasBrowser {
+				break
+			}
 			if wp == w32.SizeMinimized {
 				w.browser.Suspend()
 			} else {
@@ -238,7 +255,7 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 				w.browser.Resize()
 			}
 		case w32.WMActivate:
-			if wp == w32.WAInactive {
+			if wp == w32.WAInactive || !hasBrowser {
 				break
 			}
 			if w.autofocus {

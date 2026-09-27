@@ -59,6 +59,17 @@ func getInitScript(ua string) string {
 			}
 		}
 
+		// --- Page-side diagnostics ---------------------------------------
+		// Reports what the injected features actually did (drag & drop, document
+		// preview, account switch) to the native debug log. The native side
+		// ignores it unless diagnostics are enabled, so this stays a cheap call
+		// in normal use and needs no round trip.
+		function waDiag(kind, detail) {
+			try {
+				if (window.waDiagNative) window.waDiagNative(String(kind), String(detail == null ? '' : detail).slice(0, 300));
+			} catch (e) {}
+		}
+
 		// --- Recoverable-failure log --------------------------------------
 		// Non-fatal problems are recorded instead of thrown so one degraded
 		// feature never disables the rest of the injected script. Bounded, and
@@ -501,6 +512,12 @@ func getInitScript(ua string) string {
 		// Track clicked document filenames with robust regex matching
 		var lastClickedDocName = '';
 		var lastDocumentIntentAt = 0;
+		// Loop guard state for the automatic document preview: the same
+		// document is only auto-previewed once per cooldown window, so a
+		// re-created blob cannot reopen the viewer in a loop.
+		var lastDocPreviewName = '';
+		var lastDocPreviewAt = 0;
+		var docPreviewCooldownMs = 8000;
 		function extractDocumentName(el) {
 			if (!el || typeof el.closest !== 'function') return '';
 			// NEVER extract document names from inside the media viewer, modal dialogs, or top toolbars
@@ -543,6 +560,10 @@ func getInitScript(ua string) string {
 			if (name) {
 				lastClickedDocName = name;
 				lastDocumentIntentAt = Date.now();
+				// An explicit click is fresh intent: clear the loop guard so the
+				// same document can be previewed again on purpose.
+				lastDocPreviewName = '';
+				lastDocPreviewAt = 0;
 			}
 		}, true);
 
@@ -687,6 +708,11 @@ func getInitScript(ua string) string {
 			function handleDragEnter(e) {
 				if (!isFileDrag(e) || !isChatDrop(e)) return;
 				dragCounter++;
+				if (dragCounter === 1) {
+					var kinds = '';
+					try { kinds = (e.dataTransfer && e.dataTransfer.types) ? Array.prototype.join.call(e.dataTransfer.types, ',') : ''; } catch (err) {}
+					waDiag('drag', 'file drag entered (types=' + kinds + ')');
+				}
 				e.preventDefault();
 				// Do NOT stopPropagation — let WhatsApp's own dragenter handlers also fire
 				// so its native drop zone activates (needed for document drops)
@@ -862,17 +888,63 @@ func getInitScript(ua string) string {
 				}
 			}
 
+			// WhatsApp mounts its file inputs lazily: until the attach menu has
+			// been opened there is often no input[type=file] in the DOM at all,
+			// so the injection below found nothing and a dropped file did
+			// nothing visible. Clicking the attach button forces WhatsApp to
+			// render the menu (and with it the inputs) so the retry loop can
+			// fill them. The menu item itself is only clicked for media, where
+			// it merely mounts the in-app editor; the document entry opens the
+			// OS file picker, which must never appear behind the user's back.
+			function openAttachMenuForInjection(isMedia) {
+				var btn = findAttachButton();
+				if (!btn) return false;
+				var opened = false;
+				try {
+					btn.click();
+					opened = true;
+				} catch (e) {}
+				if (!opened) return false;
+				if (isMedia) {
+					var itemSelectors = [
+						'li[data-testid*="attach-media"]',
+						'[data-testid*="attach-media"]',
+						'[data-icon="attach-image"]',
+						'[aria-label*="Photos & videos" i]',
+						'[aria-label*="Foto & video" i]'
+					];
+					for (var i = 0; i < itemSelectors.length; i++) {
+						var el = document.querySelector(itemSelectors[i]);
+						if (el) {
+							var clickable = (el.closest && el.closest('li, [role="button"], button')) || el;
+							try { clickable.click(); } catch (e) {}
+							break;
+						}
+					}
+				}
+				return true;
+			}
+
 			// Only used for media injection (documents are handled natively by WhatsApp).
 			function injectFiles(files, attempt, isMedia) {
 				if (isMedia === undefined) isMedia = areAllMediaFiles(files);
 
 				var targetInput = isMedia ? findMediaInput() : findDocumentInput();
 				if (targetInput && setFilesOnInput(targetInput, files)) {
+					waDiag('drop', 'injected ' + files.length + ' file(s) as ' + (isMedia ? 'media' : 'document') + ' (attempt ' + attempt + ')');
 					return true;
+				}
+
+				// Give WhatsApp a nudge to mount its inputs, then keep probing.
+				if (attempt === 6 || attempt === 18) {
+					var opened = openAttachMenuForInjection(isMedia);
+					waDiag('drop', 'no ' + (isMedia ? 'media' : 'document') + ' input at attempt ' + attempt + '; attach menu ' + (opened ? 'opened' : 'not found'));
 				}
 
 				if (attempt < 40) {
 					setTimeout(function() { injectFiles(files, attempt + 1, isMedia); }, 40);
+				} else {
+					waDiag('drop', 'gave up: no file input appeared after 40 attempts');
 				}
 				return false;
 			}
@@ -894,12 +966,18 @@ func getInitScript(ua string) string {
 				// from the @mention popup, while typing and Enter kept
 				// working.
 				clearDragVisualState();
-				if (!isFileDrag(e) || !isChatDrop(e) || dropInProgress) return;
+				if (!isFileDrag(e)) { waDiag('drop', 'ignored: no Files in dataTransfer'); return; }
+				if (!isChatDrop(e)) { waDiag('drop', 'ignored: excluded target'); return; }
+				if (dropInProgress) { waDiag('drop', 'ignored: another drop is in progress'); return; }
 
 				var files = Array.prototype.slice.call((e.dataTransfer && e.dataTransfer.files) || []);
-				if (!files || files.length === 0) return;
+				if (!files || files.length === 0) { waDiag('drop', 'ignored: empty file list'); return; }
 
 				var isMedia = areAllMediaFiles(files);
+				var described = files.slice(0, 3).map(function(f) {
+					return (f.name || '?') + ' [' + (f.type || '?') + ', ' + (f.size || 0) + 'B]';
+				}).join('; ');
+				waDiag('drop', 'received ' + files.length + ' file(s) media=' + isMedia + ': ' + described);
 
 				// Prevent browser navigation (navigating to file:// URL)
 				e.preventDefault();
@@ -1101,11 +1179,24 @@ func getInitScript(ua string) string {
 			// On macOS, render the already-saved file with PDFKit instead.
 			if (isPdf && savedPath && window.showPDFPreviewNative) {
 				if (window.dismissStuckViewer) window.dismissStuckViewer();
-				window.showPDFPreviewNative(savedPath);
-				if (ownedBlobUrl) {
-					try { URL.revokeObjectURL(ownedBlobUrl); } catch (e) {}
+				var opened = false;
+				try {
+					opened = !!window.showPDFPreviewNative(savedPath);
+				} catch (e) {
+					waDiag('doc', 'native PDF preview threw: ' + (e && e.message ? e.message : e));
 				}
-				return;
+				waDiag('doc', 'native PDF preview for ' + filename + ' -> ' + opened);
+				if (opened) {
+					if (ownedBlobUrl) {
+						try { URL.revokeObjectURL(ownedBlobUrl); } catch (e) {}
+					}
+					return;
+				}
+				// PDFKit could not take the file (missing, unreadable, or a
+				// rejected path): fall through to the card below so the user
+				// still has an explicit way to open or save it. The blob URL is
+				// intentionally not revoked here - the card still needs it.
+				showFloatingToast('⚠️ Could not render this PDF in-app — open it instead');
 			}
 
 			var docIcon = '📄';
@@ -1448,6 +1539,18 @@ func getInitScript(ua string) string {
 						else if (bType.indexOf('word') >= 0) name += '.docx';
 						else name += '.pdf';
 					}
+					// Loop guard. Dismissing WhatsApp's own viewer can make it
+					// re-create the attachment blob, which re-entered this
+					// interceptor and re-opened the preview window in a loop.
+					// The same document is only auto-previewed once per window;
+					// a fresh user click resets the intent and is honoured again.
+					if (name === lastDocPreviewName && (Date.now() - lastDocPreviewAt) < docPreviewCooldownMs) {
+						waDiag('doc', 'loop guard: skipped re-preview of ' + name + ' after ' + (Date.now() - lastDocPreviewAt) + 'ms');
+						return url;
+					}
+					lastDocPreviewName = name;
+					lastDocPreviewAt = Date.now();
+					waDiag('doc', 'previewing ' + name + ' (type=' + bType + ', ' + blob.size + 'B)');
 					var isPdf = name.toLowerCase().endsWith('.pdf');
 					var previewBlob = isPdf ? blob.slice(0, blob.size, 'application/pdf') : blob;
 					var ownedBlobUrl = isPdf ? origCreateObjectURL(previewBlob) : '';
