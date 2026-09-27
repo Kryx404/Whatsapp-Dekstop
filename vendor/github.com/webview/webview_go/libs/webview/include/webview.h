@@ -360,6 +360,16 @@ WEBVIEW_API void webview_return(webview_t w, const char *seq, int status,
  */
 WEBVIEW_API const webview_version_info_t *webview_version(void);
 
+/**
+ * Rebuilds the browser view of the most recently created webview instance
+ * without destroying its native window or run loop. Used by WhatsApp Desk to
+ * swap accounts in place. Returns 1 on success, 0 when no live instance exists
+ * or the backend cannot recreate its browser view.
+ *
+ * This is a WhatsApp Desk local extension, not part of upstream webview.
+ */
+WEBVIEW_API int webview_recreate_browser_active(void);
+
 #ifdef __cplusplus
 }
 
@@ -397,6 +407,7 @@ WEBVIEW_API const webview_version_info_t *webview_version(void);
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <future>
 #include <map>
@@ -999,6 +1010,11 @@ if (status === 0) {\
   void *browser_controller() { return browser_controller_impl(); };
   void run() { run_impl(); }
   void terminate() { terminate_impl(); }
+  // Rebuilds only the browser view, keeping the native window and the running
+  // main loop untouched. WhatsApp Desk uses this to hand the same window over
+  // to a different account's isolated WKWebsiteDataStore instead of closing the
+  // window and constructing a brand new one, which looked like an app restart.
+  void recreate_browser() { recreate_browser_impl(); }
   void dispatch(std::function<void()> f) { dispatch_impl(f); }
   void set_title(const std::string &title) { set_title_impl(title); }
 
@@ -1017,6 +1033,9 @@ protected:
   virtual void *browser_controller_impl() = 0;
   virtual void run_impl() = 0;
   virtual void terminate_impl() = 0;
+  // Not pure: backends that cannot yet swap their browser view in place simply
+  // keep the current one. Cocoa overrides this.
+  virtual void recreate_browser_impl() {}
   virtual void dispatch_impl(std::function<void()> f) = 0;
   virtual void set_title_impl(const std::string &title) = 0;
   virtual void set_size_impl(int width, int height, webview_hint_t hints) = 0;
@@ -1255,34 +1274,8 @@ public:
     }
     webkit_dmabuf::apply_webkit_dmabuf_workaround();
     // Initialize webview widget
-    m_webview = webkit_web_view_new();
-    WebKitUserContentManager *manager =
-        webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(m_webview));
-    g_signal_connect(manager, "script-message-received::external",
-                     G_CALLBACK(+[](WebKitUserContentManager *,
-                                    WebKitJavascriptResult *r, gpointer arg) {
-                       auto *w = static_cast<gtk_webkit_engine *>(arg);
-                       char *s = get_string_from_js_result(r);
-                       w->on_message(s);
-                       g_free(s);
-                     }),
-                     this);
-    webkit_user_content_manager_register_script_message_handler(manager,
-                                                                "external");
-    init("window.external={invoke:function(s){window.webkit.messageHandlers."
-         "external.postMessage(s);}}");
-
-    gtk_container_add(GTK_CONTAINER(m_window), GTK_WIDGET(m_webview));
-    gtk_widget_show(GTK_WIDGET(m_webview));
-
-    WebKitSettings *settings =
-        webkit_web_view_get_settings(WEBKIT_WEB_VIEW(m_webview));
-    webkit_settings_set_javascript_can_access_clipboard(settings, true);
-    if (debug) {
-      webkit_settings_set_enable_write_console_messages_to_stdout(settings,
-                                                                  true);
-      webkit_settings_set_enable_developer_extras(settings, true);
-    }
+    m_debug = debug;
+    set_up_web_view();
 
     if (m_owns_window) {
       gtk_widget_grab_focus(GTK_WIDGET(m_webview));
@@ -1294,6 +1287,106 @@ public:
   gtk_webkit_engine &operator=(const gtk_webkit_engine &) = delete;
   gtk_webkit_engine(gtk_webkit_engine &&) = delete;
   gtk_webkit_engine &operator=(gtk_webkit_engine &&) = delete;
+
+  // Rebuilds only the browser widget, keeping the GtkWindow and the running
+  // gtk_main() loop untouched. WhatsApp Desk uses this to hand the same window
+  // over to a different account's isolated website-data store instead of
+  // closing the window and constructing a brand new engine, which looked like
+  // an app restart.
+  void recreate_browser_impl() override {
+    if (!m_window || !m_webview) {
+      return;
+    }
+    // Carried over so the registered "external" script message handler and
+    // every injected user script keep working without the host having to
+    // re-register anything. Referenced first: it would otherwise be finalized
+    // together with the widget that is about to be removed.
+    WebKitUserContentManager *preserved_manager =
+        webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(m_webview));
+    g_object_ref(preserved_manager);
+    gtk_container_remove(GTK_CONTAINER(m_window), GTK_WIDGET(m_webview));
+    m_webview = nullptr;
+    set_up_web_view(preserved_manager);
+    g_object_unref(preserved_manager);
+    if (!m_webview) {
+      return;
+    }
+    gtk_container_add(GTK_CONTAINER(m_window), GTK_WIDGET(m_webview));
+    gtk_widget_show(GTK_WIDGET(m_webview));
+    gtk_widget_grab_focus(GTK_WIDGET(m_webview));
+  }
+
+  // Creates (or recreates) the browser widget inside the existing window.
+  // WhatsApp Desk optionally supplies an absolute profile directory through
+  // WA_DESK_PROFILE_DIR before this widget is created: WebKitGTK keeps each
+  // directory's cookies, IndexedDB, service workers and cache separate without
+  // copying any session material between profiles. An unset or empty value
+  // deliberately keeps the historic default context so existing users retain
+  // their pairing. A preserved user-content manager (in-place account swaps)
+  // is installed as a construct property and is never re-registered: its
+  // "external" message handler and user scripts are already attached.
+  void set_up_web_view(WebKitUserContentManager *preserved_manager = nullptr) {
+    const char *profile_dir = std::getenv("WA_DESK_PROFILE_DIR");
+    WebKitWebsiteDataManager *data_manager = nullptr;
+    WebKitWebContext *context = nullptr;
+    if (profile_dir && *profile_dir) {
+      data_manager = webkit_website_data_manager_new(
+          "base-data-directory", profile_dir, "base-cache-directory",
+          profile_dir, nullptr);
+      context = webkit_web_context_new_with_website_data_manager(data_manager);
+    }
+    if (preserved_manager) {
+      if (context) {
+        m_webview = GTK_WIDGET(g_object_new(
+            WEBKIT_TYPE_WEB_VIEW, "user-content-manager", preserved_manager,
+            "web-context", context, nullptr));
+      } else {
+        m_webview = GTK_WIDGET(g_object_new(
+            WEBKIT_TYPE_WEB_VIEW, "user-content-manager", preserved_manager,
+            nullptr));
+      }
+    } else if (context) {
+      m_webview = webkit_web_view_new_with_context(context);
+    } else {
+      m_webview = webkit_web_view_new();
+    }
+    if (context) {
+      g_object_unref(context);
+    }
+    if (data_manager) {
+      g_object_unref(data_manager);
+    }
+    if (!m_webview) {
+      return;
+    }
+
+    WebKitUserContentManager *manager =
+        webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(m_webview));
+    if (!preserved_manager) {
+      g_signal_connect(manager, "script-message-received::external",
+                       G_CALLBACK(+[](WebKitUserContentManager *,
+                                      WebKitJavascriptResult *r, gpointer arg) {
+                         auto *w = static_cast<gtk_webkit_engine *>(arg);
+                         char *s = get_string_from_js_result(r);
+                         w->on_message(s);
+                         g_free(s);
+                       }),
+                       this);
+      webkit_user_content_manager_register_script_message_handler(manager,
+                                                                  "external");
+      init("window.external={invoke:function(s){window.webkit.messageHandlers."
+           "external.postMessage(s);}}");
+    }
+
+    WebKitSettings *settings =
+        webkit_web_view_get_settings(WEBKIT_WEB_VIEW(m_webview));
+    webkit_settings_set_javascript_can_access_clipboard(settings, true);
+    if (m_debug) {
+      webkit_settings_set_enable_write_console_messages_to_stdout(settings,
+                                                                  true);
+      webkit_settings_set_enable_developer_extras(settings, true);
+    }
+  }
 
   virtual ~gtk_webkit_engine() {
     if (m_webview) {
@@ -1446,6 +1539,7 @@ private:
   }
 
   bool m_owns_window{};
+  bool m_debug{};
   GtkWidget *m_window{};
   GtkWidget *m_webview{};
 };
@@ -1635,6 +1729,85 @@ public:
   void *widget_impl() override { return (void *)m_webview; }
   void *browser_controller_impl() override { return (void *)m_webview; };
   void terminate_impl() override { stop_run_loop(); }
+  // Swaps in a fresh WKWebView for the same NSWindow. The website data store is
+  // chosen while a WKWebView is created, so this is what hands the window over
+  // to another account's isolated store without closing the window or tearing
+  // down the NSApplication main loop. The window, its delegate, the app
+  // delegate, the menu bar and the status item all survive untouched, so an
+  // account switch reads as an in-app reload rather than an app restart.
+  void recreate_browser_impl() override {
+    objc::autoreleasepool arp;
+    if (!m_window || !m_webview) {
+      return;
+    }
+
+    id previous_view = m_webview;
+    // Carried over so every registered JS binding and user script keeps working
+    // without the host having to re-register anything.
+    id preserved_manager = m_manager;
+
+    // Build the replacement BEFORE touching the view hierarchy. The website
+    // data store is chosen at creation time, and while the fresh view is
+    // constructed nothing on screen changes, so the window never shows an
+    // empty content view - that blank frame was the "blink" users saw on
+    // every account switch.
+    m_webview = nullptr;
+    m_manager = nullptr;
+    set_up_web_view(preserved_manager);
+    if (!m_webview) {
+      // Nothing was removed yet; keep the previous view installed and report
+      // failure so the caller can fall back to a full WebView rebuild.
+      m_webview = previous_view;
+      m_manager = preserved_manager;
+      return;
+    }
+
+    // Install the replacement as the content view (the window auto-sizes
+    // it), then put the old view back ON TOP of it. The current account's
+    // page keeps covering the window until the fresh view's layer paints,
+    // and the swap reads as an in-page reload instead of a flash to white.
+    // Clicks landing on the parked page for this brief window are harmless:
+    // the view is discarded right after. (NSView has no userInteractionEnabled
+    // - that is a UIView API - and sending it here aborts the process.)
+    objc::msg_send<void>(m_window, "setContentView:"_sel, m_webview);
+    id content = objc::msg_send<id>(m_window, "contentView"_sel);
+    // NSWindowAbove == 1.
+    objc::msg_send<void>(content, "addSubview:positioned:relativeTo:"_sel,
+                         previous_view, 1, m_webview);
+
+    // Deferred teardown of the old view. Captureless lambda converts to a
+    // plain function pointer, so no Objective-C blocks are needed. Ownership
+    // stays balanced: the view carries +1 from alloc (dropped here) and +1
+    // from its superview (dropped by removeFromSuperview).
+    struct leftover_view {
+      id view;
+      bool debug;
+    };
+    // WA_DESK_DEBUG=1 prints the park lifecycle: with it, a switch shows
+    // "parked outgoing view" followed by "parked view destroyed ~1.5s" —
+    // proof that only one web engine stays alive at rest.
+    const bool park_debug = std::getenv("WA_DESK_DEBUG") != nullptr &&
+                            std::string(std::getenv("WA_DESK_DEBUG")) == "1";
+    if (park_debug) {
+      fprintf(stderr, "[wa-desk-park] outgoing view parked (two engines "
+                      "alive until teardown)\n");
+    }
+    auto *leftover = new leftover_view{previous_view, park_debug};
+    dispatch_after_f(
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+        dispatch_get_main_queue(), leftover,
+        [](void *arg) {
+          auto *lv = static_cast<leftover_view *>(arg);
+          const bool debug = lv->debug;
+          objc::msg_send<void>(lv->view, "removeFromSuperview"_sel);
+          objc::msg_send<void>(lv->view, "release"_sel);
+          delete lv;
+          if (debug) {
+            fprintf(stderr, "[wa-desk-park] parked view destroyed (one "
+                            "engine alive again)\n");
+          }
+        });
+  }
   void run_impl() override {
     auto app = get_shared_application();
     objc::msg_send<void>(app, "run"_sel);
@@ -1921,11 +2094,141 @@ private:
       objc::msg_send<void>(m_window, "makeKeyAndOrderFront:"_sel, nullptr);
     }
   }
-  void set_up_web_view() {
+  void set_up_web_view(id preserved_manager = nullptr) {
     objc::autoreleasepool arp;
 
     auto config = objc::autoreleased(
         objc::msg_send<id>("WKWebViewConfiguration"_cls, "new"_sel));
+
+    // WhatsApp Desk optionally supplies an opaque account UUID before this
+    // engine is created. WKWebsiteDataStore keeps each identifier's cookies,
+    // IndexedDB, service workers, and cache separate without copying any
+    // session material between profiles. An empty value deliberately keeps the
+    // historic default datastore so existing users retain their pairing.
+    const char *profile_identifier = std::getenv("WA_DESK_PROFILE_UUID");
+    const bool profile_debug = std::getenv("WA_DESK_DEBUG") != nullptr &&
+                               std::string(std::getenv("WA_DESK_DEBUG")) == "1";
+    if (profile_identifier && profile_identifier[0] != '\0') {
+      id store = nil;
+      bool named_api_available = objc::msg_send<BOOL>(
+          "WKWebsiteDataStore"_cls, "respondsToSelector:"_sel,
+          "dataStoreForIdentifier:"_sel);
+      bool uuid_parsed = false;
+
+      // The registry stores account IDs as 32 hex chars WITHOUT dashes,
+      // but NSUUID only accepts the canonical dashed form — an undashed
+      // string makes initWithUUIDString: return nil and silently downgrades
+      // every account to the ephemeral store. Accept both forms here.
+      std::string canonical;
+      {
+        std::string raw(profile_identifier);
+        bool dashed = raw.size() == 36 && raw[8] == '-' && raw[13] == '-' &&
+                      raw[18] == '-' && raw[23] == '-';
+        bool undashed = raw.size() == 32;
+        bool hex_only = true;
+        for (char c : raw) {
+          bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+                     (c >= 'A' && c <= 'F');
+          if (!(hex || c == '-')) {
+            hex_only = false;
+            break;
+          }
+        }
+        if (dashed && hex_only) {
+          canonical = raw;
+        } else if (undashed && hex_only) {
+          canonical = raw.substr(0, 8) + "-" + raw.substr(8, 4) + "-" +
+                      raw.substr(12, 4) + "-" + raw.substr(16, 4) + "-" +
+                      raw.substr(20, 12);
+        }
+      }
+      // NOTE: stringWithUTF8String already returns an autoreleased object.
+      // Wrapping it in objc::autoreleased would autorelease it a second time,
+      // and the pool would then over-release it at drain — a crash that only
+      // shows up when a non-default account profile is active at startup.
+      auto identifier = canonical.empty()
+                            ? nil
+                            : objc::msg_send<id>(
+                                  "NSString"_cls, "stringWithUTF8String:"_sel,
+                                  canonical.c_str());
+      auto uuid =
+          identifier
+              ? objc::autoreleased(objc::msg_send<id>(
+                    objc::msg_send<id>("NSUUID"_cls, "alloc"_sel),
+                    "initWithUUIDString:"_sel, identifier))
+              : nil;
+      uuid_parsed = uuid != nil;
+
+      // dataStoreForIdentifier: (macOS 14+/iOS 17+) gives a genuinely
+      // separate PERSISTENT store per UUID, so a second account's WhatsApp
+      // pairing survives an app restart just like the first account's does.
+      if (uuid && named_api_available) {
+        store = objc::msg_send<id>("WKWebsiteDataStore"_cls,
+                                   "dataStoreForIdentifier:"_sel, uuid);
+      }
+
+      // Older macOS/iOS (or a malformed identifier) has no named-persistent
+      // store API at all. WebKit's _WKWebsiteDataStoreConfiguration SPI can
+      // still build one: initWithIdentifier: plus WKWebsiteDataStore
+      // _initWithConfiguration: create exactly the per-identifier persistent
+      // store that macOS 14's public +dataStoreForIdentifier: wraps
+      // (verified on macOS 13.7: the complete store tree appears under
+      // ~/Library/WebKit/<bundle-id>/WebsiteDataStore/<uuid>/, and the store
+      // keeps its contents across relaunches). Without it the second account
+      // would lose its pairing on every quit.
+      bool used_ephemeral = false;
+      if (!store && uuid) {
+        id spi_cfg = objc::msg_send<id>(
+            objc_getClass("_WKWebsiteDataStoreConfiguration"), "alloc"_sel);
+        if (spi_cfg) {
+          spi_cfg = objc::msg_send<id>(spi_cfg, "initWithIdentifier:"_sel,
+                                       uuid);
+        }
+        if (spi_cfg) {
+          id spi_store = objc::msg_send<id>(
+              objc::msg_send<id>("WKWebsiteDataStore"_cls, "alloc"_sel),
+              "_initWithConfiguration:"_sel, spi_cfg);
+          // The store either copied or retained the configuration; our own
+          // +1 is dropped either way.
+          objc::msg_send<void>(spi_cfg, "release"_sel);
+          if (spi_store) {
+            store = objc::autoreleased(spi_store);
+          }
+        }
+        if (!store) {
+          store = objc::msg_send<id>("WKWebsiteDataStore"_cls,
+                                     "nonPersistentDataStore"_sel);
+          used_ephemeral = true;
+        }
+      } else if (!store) {
+        store = objc::msg_send<id>("WKWebsiteDataStore"_cls,
+                                   "nonPersistentDataStore"_sel);
+        used_ephemeral = true;
+      }
+
+      if (store) {
+        objc::msg_send<void>(config, "setWebsiteDataStore:"_sel, store);
+      }
+
+      if (profile_debug) {
+        fprintf(stderr,
+                "[wa-desk-profile] id=%s canonical=%s named_api=%d "
+                "uuid_parsed=%d ephemeral=%d store_set=%d\n",
+                profile_identifier, canonical.c_str(), named_api_available,
+                uuid_parsed, used_ephemeral, store != nil);
+      }
+    } else if (profile_debug) {
+      fprintf(stderr, "[wa-desk-profile] using shared default datastore "
+                       "(no WA_DESK_PROFILE_UUID set)\n");
+    }
+
+    // When swapping in a browser view for a different account, reuse the
+    // existing WKUserContentController so every JS binding and user script
+    // registered through init()/bind() keeps working without re-registering.
+    if (preserved_manager) {
+      objc::msg_send<void>(config, "setUserContentController:"_sel,
+                           preserved_manager);
+    }
 
     m_manager = objc::msg_send<id>(config, "userContentController"_sel);
     m_webview = objc::msg_send<id>("WKWebView"_cls, "alloc"_sel);
@@ -1983,18 +2286,23 @@ private:
 #endif
     }
 
-    auto script_message_handler =
-        objc::autoreleased(create_script_message_handler());
-    objc::msg_send<void>(m_manager, "addScriptMessageHandler:name:"_sel,
-                         script_message_handler, "external"_str);
+    // Skipped when reusing an existing WKUserContentController: that controller
+    // already owns the "external" handler and the window.external bootstrap, and
+    // repeating them would stack another identical user script on every switch.
+    if (!preserved_manager) {
+      auto script_message_handler =
+          objc::autoreleased(create_script_message_handler());
+      objc::msg_send<void>(m_manager, "addScriptMessageHandler:name:"_sel,
+                           script_message_handler, "external"_str);
 
-    init(R""(
+      init(R""(
       window.external = {
         invoke: function(s) {
           window.webkit.messageHandlers.external.postMessage(s);
         },
       };
       )"");
+    }
   }
   void stop_run_loop() {
     objc::autoreleasepool arp;
@@ -3498,16 +3806,37 @@ namespace webview {
 using webview = browser_engine;
 } // namespace webview
 
+// See webview_create() below: this holds the single live instance so the host
+// can ask for an in-place browser swap without passing the handle back in.
+static webview::webview *g_active_webview = nullptr;
+
 WEBVIEW_API webview_t webview_create(int debug, void *wnd) {
   auto w = new webview::webview(debug, wnd);
   if (!w->window()) {
     delete w;
     return nullptr;
   }
+  // WhatsApp Desk swaps accounts by rebuilding the browser view inside the one
+  // window it owns, which needs a way to reach the live instance without the
+  // host holding the opaque webview_t handle. Exactly one instance ever exists
+  // here, so a single slot is enough. Backends that cannot swap their browser
+  // view in place treat webview_recreate_browser_active() as a no-op.
+  g_active_webview = w;
   return w;
 }
 
+WEBVIEW_API int webview_recreate_browser_active(void) {
+  if (!g_active_webview) {
+    return 0;
+  }
+  g_active_webview->recreate_browser();
+  return 1;
+}
+
 WEBVIEW_API void webview_destroy(webview_t w) {
+  if (g_active_webview == static_cast<webview::webview *>(w)) {
+    g_active_webview = nullptr;
+  }
   delete static_cast<webview::webview *>(w);
 }
 

@@ -289,16 +289,34 @@ func TestSettingsControlsRemainWired(t *testing.T) {
 func TestSettingsShortcutActionsKeepConsistentSpacing(t *testing.T) {
 	script := getInitScript("test-agent")
 	for _, shortcut := range []string{"+Shift+P", "+Shift+T", "+Shift+M", "+Shift+S"} {
-		idx := strings.Index(script, shortcut)
-		if idx < 0 {
-			t.Fatalf("settings shortcut %q not found", shortcut)
+		// Shortcut strings also appear outside the settings modal (e.g. dock
+		// tooltip hints), so scan every occurrence and pass when the settings
+		// row layout is found near any of them. First-occurrence matching broke
+		// as soon as another feature legitimately mentioned a shortcut earlier
+		// in the script.
+		found := false
+		for idx := strings.Index(script, shortcut); idx >= 0 && !found; {
+			lo := idx - 500
+			if lo < 0 {
+				lo = 0
+			}
+			hi := idx + 500
+			if hi > len(script) {
+				hi = len(script)
+			}
+			window := script[lo:hi]
+			if strings.Contains(window, "gap:12px;min-width:150px;flex-shrink:0") && strings.Contains(window, "min-width:78px") {
+				found = true
+				break
+			}
+			next := strings.Index(script[idx+1:], shortcut)
+			if next < 0 {
+				break
+			}
+			idx += 1 + next
 		}
-		window := script[idx-500 : idx+500]
-		if !strings.Contains(window, "gap:12px;min-width:150px;flex-shrink:0") {
-			t.Errorf("shortcut %q is missing the spaced action layout", shortcut)
-		}
-		if !strings.Contains(window, "min-width:78px") {
-			t.Errorf("shortcut %q action button is missing a consistent minimum width", shortcut)
+		if !found {
+			t.Errorf("shortcut %q has no settings row with the spaced action layout (gap:12px;min-width:150px + min-width:78px)", shortcut)
 		}
 	}
 }
@@ -847,11 +865,14 @@ func TestWindowsMemoryReleaseDoesNotOrphanSuspendedWebView(t *testing.T) {
 	if start < 0 {
 		t.Fatal("Windows memory release binding not found")
 	}
-	end := strings.Index(content[start:], "\n\t})")
-	if end < 0 {
+	// The binding body ends where the next binding starts. The source sits
+	// inside the multi-account session loop, so leading indentation varies and
+	// the end marker must not be tied to a specific number of tabs.
+	next := strings.Index(content[start+1:], "_ = w.Bind(")
+	if next < 0 {
 		t.Fatal("Windows memory release binding is incomplete")
 	}
-	binding := content[start : start+end]
+	binding := content[start : start+1+next]
 	for _, line := range strings.Split(binding, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "//") && strings.Contains(line, "w.Suspend()") {
