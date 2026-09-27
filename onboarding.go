@@ -3,7 +3,7 @@ package main
 func getOnboardingScript() string {
 	return `
 		(function() {
-			var ONBOARDING_KEY = 'whatsapp_desktop_onboarded_v4';
+			var ONBOARDING_KEY = 'whatsapp_desktop_onboarded_v5';
 
 			function shortcut(keys) {
 				return '<kbd style="font:500 11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;color:inherit;background:transparent;border:1px solid currentColor;border-radius:4px;padding:3px 6px;opacity:.72;white-space:nowrap;">' + keys + '</kbd>';
@@ -46,14 +46,31 @@ func getOnboardingScript() string {
 				intro.style.cssText = 'margin-bottom:20px;';
 				intro.innerHTML = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
 					'<span style="width:10px;height:10px;border-radius:50%;background:#00a884;flex:none;"></span>' +
-					'<h1 id="wa-onboarding-title" style="font-size:18px;line-height:1.3;font-weight:600;letter-spacing:-.15px;margin:0;">WhatsApp Desk is ready</h1>' +
+					'<h1 id="wa-onboarding-title" style="font-size:18px;line-height:1.3;font-weight:600;letter-spacing:-.15px;margin:0;">WhatsApp Desk 1.6.0 is ready</h1>' +
 					'</div>' +
-					'<p style="font-size:13px;line-height:1.55;color:' + muted + ';margin:0;max-width:58ch;">Log in or scan QR code as usual. Desktop controls and shortcuts are available whenever you need them.</p>';
+					'<p style="font-size:13px;line-height:1.55;color:' + muted + ';margin:0;max-width:58ch;">Log in or scan QR code as usual. New in this release: a second WhatsApp account with fully isolated profiles, and the quick-tool dock on the left edge.</p>';
 				panel.appendChild(intro);
+
+				// What's-new rows: the two headline features of this release,
+				// visually set apart from the standing shortcut list by the
+				// accent edge, so returning users can spot the changes fast.
+				var news = document.createElement('div');
+				news.style.cssText = 'border:1px solid ' + border + ';border-left:3px solid #00a884;border-radius:6px;padding:4px 12px;margin-bottom:14px;';
+				var mod = (typeof __WA_GOOS !== 'undefined' && __WA_GOOS === 'darwin') ? 'Cmd' : 'Ctrl';
+				var newsItems = [
+					['Two accounts, one window', mod + ' + Shift + 1 / 2'],
+					['Quick tools on the account dock', 'Privacy · Top · Blur']
+				];
+				newsItems.forEach(function(item, index) {
+					var row = document.createElement('div');
+					row.style.cssText = 'min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:16px;' + (index ? 'border-top:1px solid ' + border + ';' : '');
+					row.innerHTML = '<span style="font-size:12.5px;line-height:1.4;">' + item[0] + '</span>' + shortcut(item[1]);
+					news.appendChild(row);
+				});
+				panel.appendChild(news);
 
 				var rows = document.createElement('div');
 				rows.style.cssText = 'border-top:1px solid ' + border + ';border-bottom:1px solid ' + border + ';margin-bottom:20px;';
-				var mod = (typeof __WA_GOOS !== 'undefined' && __WA_GOOS === 'darwin') ? 'Cmd' : 'Ctrl';
 				var items = [
 					['Blur conversation messages & media', mod + ' + Shift + P'],
 					['Keep window always on top', mod + ' + Shift + T'],

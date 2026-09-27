@@ -104,6 +104,17 @@ def build_welcome():
     rounded_rect(d, [cx0, 198, cx0 + cw, 220], radius=11, fill=LAYER)
     d.text(((w - d.textlength(chip, font=tiny_font)) / 2, 203), chip, font=tiny_font, fill=ACCENT)
 
+    # What's-new block: one quiet section that names the headline features of
+    # this release, so the first wizard page answers "why a new version?".
+    # Kept to two lines in the app's quiet style — no badges, no decoration.
+    label = "NEW IN " + chip[1:].upper()
+    d.text(((w - d.textlength(label, font=tiny_font)) / 2, 244), label, font=tiny_font, fill=ACCENT)
+    y = 264
+    for feature in ("Multi-Account", "Quick-Tool Dock"):
+        fw = d.textlength(feature, font=body_font)
+        d.text(((w - fw) / 2, y), feature, font=body_font, fill=TEXT)
+        y += 17
+
     return img
 
 
