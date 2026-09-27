@@ -19,6 +19,10 @@ Version numbers are declared in exactly one place — `appVersion` in `updater.g
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-27
+
+> Multi-Account Profiles & a Quick-Tool Dock
+
 ### Added
 
 - Account profiles: link a second WhatsApp account alongside the existing one.
@@ -31,6 +35,10 @@ Version numbers are declared in exactly one place — `appVersion` in `updater.g
   browser view in place; on Windows it restarts the window.
 - Unread hint per account chip: the dock shows the badge value an account had
   when it was last switched away from. Recorded once per switch, never polled.
+- Quick-tool zone in the account dock: Privacy Mode, Always on Top, and Blur
+  Profile Photos live as small icons below a divider under the account chips,
+  with active-state coloring, tooltips, and the existing `Ctrl/Cmd+Shift+P/T`
+  shortcuts still working. Purely event-driven — no polling.
 
 ### Fixed
 
