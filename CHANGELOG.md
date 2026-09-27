@@ -19,6 +19,48 @@ Version numbers are declared in exactly one place — `appVersion` in `updater.g
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-09-27
+
+> Crash Fixes, Reliable Drag & Drop, and Document Preview Recovery
+
+### Fixed
+
+- Windows: the app no longer dies when the window is moved or activated while the
+  webview is still being created. A title-bar click enters Windows' modal move loop,
+  which re-entered the webview's message handler while its browser field was still
+  empty, and the resulting fault killed the process (#58, #59, #60).
+- macOS: the app no longer quits by itself when the account registry cannot be read
+  at startup, or when the webview fails to build on the first attempt. Both paths
+  ended the process; they now fall back to a single-account session and retry, and
+  any remaining exit path leaves a crash report behind.
+- Switching accounts is settled before another switch can start. A second switch
+  requested while the previous swap was still painting could tear down the incoming
+  view; switches now wait out the settle window.
+- Document previews no longer reopen in a loop. Dismissing WhatsApp's own viewer
+  makes it re-create the attachment, which re-entered the preview interceptor and
+  reopened the window indefinitely; the same document is now auto-previewed once per
+  window, and a fresh click is still honoured.
+- Previewing a PDF no longer fights WhatsApp's viewer. The dismissal ran for 2.4
+  seconds of close-button clicks and synthetic Escape keys; it is now bounded, and
+  stops immediately when there is no viewer to dismiss.
+- If the in-app PDF renderer cannot take a file, the preview card is shown instead
+  of nothing, so there is always a way to open or save the document.
+- Drag and drop works again for images and documents. The check that decided whether
+  WhatsApp had accepted the drop treated any open dialog as success — and WhatsApp
+  keeps dialog containers mounted permanently — so the fallback never ran and the
+  drop silently did nothing.
+- A second drop arriving while the first was still being staged no longer overwrites
+  it.
+
+### Added
+
+- Capture diagnostics for calls (#57). The app now records the constraints the page
+  requests and the settings the engine grants, so a "robotic microphone" report can
+  be answered with data instead of a guess. The call path itself is untouched: the
+  probe passes the original arguments and return value straight through.
+- The in-app issue reporter now includes feature notes — decisions that changed what
+  the user saw, such as a suppressed duplicate preview — next to page errors.
+
 ## [1.6.0] - 2026-09-27
 
 > Multi-Account Profiles & a Quick-Tool Dock

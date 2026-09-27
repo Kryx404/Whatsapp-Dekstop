@@ -98,7 +98,7 @@ def build_welcome():
         y += 15
 
     # Version chip: reads as metadata, not as a marketing badge.
-    chip = "v" + os.environ.get("WA_DESK_VERSION", "1.6.0")
+    chip = "v" + os.environ.get("WA_DESK_VERSION", "1.6.1")
     cw = d.textlength(chip, font=tiny_font) + 18
     cx0 = (w - cw) / 2
     rounded_rect(d, [cx0, 198, cx0 + cw, 220], radius=11, fill=LAYER)
@@ -107,7 +107,9 @@ def build_welcome():
     # What's-new block: one quiet section that names the headline features of
     # this release, so the first wizard page answers "why a new version?".
     # Kept to two lines in the app's quiet style — no badges, no decoration.
-    label = "NEW IN " + chip[1:].upper()
+    # Deliberately release-agnostic: labelling these "new in 1.6.1" would claim
+    # a patch release introduced them. The chip above already carries the version.
+    label = "WHAT'S INSIDE"
     d.text(((w - d.textlength(label, font=tiny_font)) / 2, 244), label, font=tiny_font, fill=ACCENT)
     y = 264
     for feature in ("Multi-Account", "Quick-Tool Dock"):

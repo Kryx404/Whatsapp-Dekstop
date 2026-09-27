@@ -46,9 +46,9 @@ func getOnboardingScript() string {
 				intro.style.cssText = 'margin-bottom:20px;';
 				intro.innerHTML = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
 					'<span style="width:10px;height:10px;border-radius:50%;background:#00a884;flex:none;"></span>' +
-					'<h1 id="wa-onboarding-title" style="font-size:18px;line-height:1.3;font-weight:600;letter-spacing:-.15px;margin:0;">WhatsApp Desk 1.6.0 is ready</h1>' +
+					'<h1 id="wa-onboarding-title" style="font-size:18px;line-height:1.3;font-weight:600;letter-spacing:-.15px;margin:0;">WhatsApp Desk 1.6.1 is ready</h1>' +
 					'</div>' +
-					'<p style="font-size:13px;line-height:1.55;color:' + muted + ';margin:0;max-width:58ch;">Log in or scan QR code as usual. New in this release: a second WhatsApp account with fully isolated profiles, and the quick-tool dock on the left edge.</p>';
+					'<p style="font-size:13px;line-height:1.55;color:' + muted + ';margin:0;max-width:58ch;">Log in or scan QR code as usual. This release adds a second WhatsApp account with fully isolated profiles and the quick-tool dock on the left edge, and hardens drag &amp; drop, document previews, and account switching.</p>';
 				panel.appendChild(intro);
 
 				// What's-new rows: the two headline features of this release,
