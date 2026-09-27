@@ -191,6 +191,246 @@ function checkSpreadsheetSanitizer() {
   return failures;
 }
 
+// Drag & drop regression (reported on macOS: "drag n drop file, gambar dll
+// masih belum bisa"). A dropped file must reach WhatsApp's composer even when
+// an unrelated dialog is mounted. The probe that decides whether WhatsApp's own
+// drop handler worked used to accept any [role="dialog"] as proof of success -
+// and WhatsApp keeps dialog containers mounted permanently - so the injection
+// fallback never ran and the drop silently did nothing. Live diagnostics showed
+// the event arriving with the file intact and then no further action at all.
+async function checkDragDrop() {
+  const failures = [];
+  const html =
+    '<!doctype html><html><body><div id="app"><div id="side"></div>' +
+    '<div id="main"><div role="dialog" id="decoy-dialog">stray dialog</div>' +
+    '<div id="attach-wrap"><input type="file" accept="*"></div></div></div></body></html>';
+  const dom = new JSDOM(html, {
+    runScripts: 'outside-only',
+    pretendToBeVisual: true,
+    url: 'https://web.whatsapp.com/',
+    virtualConsole: new VirtualConsole(),
+  });
+  const { window } = dom;
+  for (const n of BRIDGES) window[n] = () => Promise.resolve('');
+  patchLayout(window);
+
+  const diag = [];
+  window.waDiagNative = (kind, detail) => { diag.push(kind + ': ' + detail); return true; };
+
+  // jsdom implements neither DataTransfer nor a writable input.files, so both
+  // are stubbed down to what the injected code actually uses.
+  window.DataTransfer = class {
+    constructor() { this._files = []; this.items = { add: (f) => { this._files.push(f); } }; }
+    get files() { return this._files; }
+  };
+  Object.defineProperty(window.HTMLInputElement.prototype, 'files', {
+    get() { return this.__waFiles || []; },
+    set(v) { this.__waFiles = v; },
+    configurable: true,
+  });
+
+  window.eval(script);
+  await nextFrame(window);
+  await nextFrame(window);
+
+  const input = window.document.querySelector('input[type="file"]');
+  let staged = 0;
+  input.addEventListener('input', () => { staged++; });
+  input.addEventListener('change', () => { staged++; });
+
+  const drop = new window.Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, 'dataTransfer', {
+    value: {
+      types: ['Files'],
+      files: [{
+        name: 'Laporan.docx',
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        size: 2048,
+      }],
+      dropEffect: 'none',
+    },
+  });
+  window.document.getElementById('main').dispatchEvent(drop);
+
+  // Four 350ms probes run before the fallback injection starts, then the retry
+  // loop fills the input; 2.5s is comfortably past both.
+  await new Promise((r) => setTimeout(r, 2500));
+
+  const detail = diag.join(' | ') || 'no diagnostics at all';
+  if (!diag.some((d) => d.indexOf('drop: received') === 0)) {
+    failures.push('the drop event never reached the handler (' + detail + ')');
+  }
+  if (!diag.some((d) => d.indexOf('drop: injected') === 0)) {
+    failures.push('the fallback never injected the dropped file (' + detail + ')');
+  }
+  if (diag.some((d) => d.indexOf('gave up') !== -1)) {
+    failures.push('the retry loop gave up instead of injecting (' + detail + ')');
+  }
+  const filesOnInput = (input.__waFiles && input.__waFiles.length) || 0;
+  if (filesOnInput !== 1) {
+    failures.push('the document input did not receive the dropped file (files=' + filesOnInput + ')');
+  }
+  if (staged === 0) {
+    failures.push('no input/change event was dispatched, so WhatsApp would never see the file');
+  }
+  return failures;
+}
+
+// Document-preview loop regression (reported on macOS: "preview pdf dan file2
+// lain bermasalah"). Dismissing WhatsApp's own viewer makes it re-create the
+// attachment blob, which re-entered the createObjectURL interceptor and
+// re-opened the in-app preview - a loop. The guard must suppress that re-entry,
+// must still honour a fresh click, and must leave a trace in the in-app report.
+async function checkDocPreviewLoopGuard() {
+  const failures = [];
+  const html =
+    '<!doctype html><html><body><div id="app"><div id="side"></div><div id="main">' +
+    '<div data-testid="msg-container"><div role="row" data-id="m1" title="Laporan.pdf">' +
+    '<span id="doc-link">Laporan.pdf</span></div></div>' +
+    '<div id="attach-wrap"><input type="file" accept="*"></div>' +
+    '</div></div></body></html>';
+  const dom = new JSDOM(html, {
+    runScripts: 'outside-only',
+    pretendToBeVisual: true,
+    url: 'https://web.whatsapp.com/',
+    virtualConsole: new VirtualConsole(),
+  });
+  const { window } = dom;
+  for (const n of BRIDGES) window[n] = () => Promise.resolve('');
+  patchLayout(window);
+
+  const diag = [];
+  window.waDiagNative = (kind, detail) => { diag.push(kind + ': ' + detail); return true; };
+  // jsdom has no createObjectURL, and the interceptor calls the original
+  // *outside* its try block, so the stub must exist before the script runs.
+  let blobSeq = 0;
+  window.URL.createObjectURL = () => 'blob:jsdom/' + (++blobSeq);
+  window.URL.revokeObjectURL = () => {};
+  // jsdom does not implement innerText either; the name extractor reads it.
+  Object.defineProperty(window.document.getElementById('doc-link'), 'innerText', {
+    value: 'Laporan.pdf', configurable: true,
+  });
+
+  let reportUrl = '';
+  window.openExternalLink = (u) => { reportUrl = u; };
+
+  window.eval(script);
+  await nextFrame(window);
+  await nextFrame(window);
+
+  const doc = window.document;
+  const overlay = () => doc.getElementById('wa-doc-modal-overlay');
+  const blob = new window.Blob([new Uint8Array([37, 80, 68, 70])], { type: 'application/pdf' });
+  const clickDoc = () => doc.getElementById('doc-link')
+    .dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  const settle = () => new Promise((r) => setTimeout(r, 150));
+
+  // 1. A user click, then WhatsApp handing over the attachment blob, opens the
+  //    in-app preview.
+  clickDoc();
+  window.URL.createObjectURL(blob);
+  await settle();
+  if (!overlay()) {
+    failures.push('the first preview never opened (diag: ' + (diag.join(' | ') || 'none') + ')');
+  }
+
+  // 2. The re-created blob must not reopen it. This is the reported loop.
+  if (overlay()) overlay().remove();
+  const before = diag.length;
+  window.URL.createObjectURL(blob);
+  await settle();
+  if (overlay()) failures.push('the same blob reopened the preview: the loop guard did not hold');
+  if (!diag.slice(before).some((d) => d.indexOf('doc: loop guard') === 0)) {
+    failures.push('the guard did not report itself (diag: ' + (diag.slice(before).join(' | ') || 'none') + ')');
+  }
+
+  // 2b. A suppression is a decision, not an error, so it has to travel with the
+  //     in-app report - otherwise "the preview did nothing" stays unexplained.
+  if (typeof window.openIssueReporter === 'function') {
+    window.openIssueReporter();
+    const body = reportUrl ? decodeURIComponent(reportUrl.split('&body=')[1] || '') : '';
+    if (body.indexOf('Feature notes:') === -1 || body.indexOf('suppressed duplicate re-open of Laporan.pdf') === -1) {
+      failures.push('the suppression is missing from the in-app report body');
+    }
+  } else {
+    failures.push('openIssueReporter is not installed, so the suppression cannot be reported');
+  }
+
+  // 3. A fresh click is new intent and must be honoured again.
+  clickDoc();
+  window.URL.createObjectURL(blob);
+  await settle();
+  if (!overlay()) failures.push('a fresh user click was refused by the loop guard');
+
+  return failures;
+}
+
+// Capture path (issue #57: "the other person can't hear our voice clearly, it's
+// broken like a robot"). The probe exists to gather evidence, so it must be
+// invisible: same receiver, same arguments, same return value, and a
+// synchronous engine failure must still reach the caller.
+async function checkCaptureDiagnostics() {
+  const failures = [];
+  const dom = new JSDOM(HEAD_BARE, {
+    runScripts: 'outside-only',
+    pretendToBeVisual: true,
+    url: 'https://web.whatsapp.com/',
+    virtualConsole: new VirtualConsole(),
+  });
+  const { window } = dom;
+  for (const n of BRIDGES) window[n] = () => Promise.resolve('');
+  patchLayout(window);
+
+  const diag = [];
+  window.waDiagNative = (kind, detail) => { diag.push(kind + ': ' + detail); return true; };
+
+  const track = {
+    label: 'MacBook Pro Microphone',
+    getSettings: () => ({
+      channelCount: 1, sampleRate: 48000, echoCancellation: true,
+      noiseSuppression: true, autoGainControl: true,
+    }),
+  };
+  const stream = { getAudioTracks: () => [track] };
+  const sentinel = Promise.resolve(stream);
+  const boom = new Error('NotAllowedError');
+  const calls = [];
+  const engine = {
+    getUserMedia: function() {
+      calls.push({ constraints: arguments[0], receiver: this });
+      if (calls.length > 1) throw boom;
+      return sentinel;
+    },
+  };
+  Object.defineProperty(window.navigator, 'mediaDevices', { value: engine, configurable: true });
+
+  window.eval(script);
+  await nextFrame(window);
+
+  const constraints = { audio: { channelCount: 1, echoCancellation: false }, video: true };
+  const returned = engine.getUserMedia(constraints);
+  await new Promise((r) => setTimeout(r, 40));
+
+  if (calls.length !== 1) failures.push('the probe did not pass exactly one call through (got ' + calls.length + ')');
+  if (calls.length && calls[0].constraints !== constraints) {
+    failures.push('the constraints object was copied or replaced instead of passed through');
+  }
+  if (calls.length && calls[0].receiver !== engine) failures.push('the engine call lost its receiver');
+  if (returned !== sentinel) failures.push('the probe did not return the engine result unchanged');
+  if (!diag.some((d) => d.indexOf('mic: getUserMedia constraints:') === 0)) {
+    failures.push('the requested constraints were not recorded (diag: ' + (diag.join(' | ') || 'none') + ')');
+  }
+  if (!diag.some((d) => d.indexOf('mic: granted:') === 0 && d.indexOf('ch=1') !== -1)) {
+    failures.push('the granted track settings were not recorded');
+  }
+
+  let threw = null;
+  try { engine.getUserMedia(constraints); } catch (e) { threw = e; }
+  if (threw !== boom) failures.push('a synchronous engine failure was swallowed instead of propagating');
+
+  return failures;
+}
+
 async function main() {
   let failures = 0;
   for (const [label, transform, envMutate, , head] of cases) {
@@ -223,11 +463,38 @@ async function main() {
     console.log(`RED    ${'spreadsheet sanitizer'.padEnd(22)} ${reason}`);
   }
 
+  const dndFailures = await checkDragDrop();
+  if (dndFailures.length === 0) {
+    console.log(`GREEN  ${'drag & drop injection'.padEnd(22)} file reaches the composer despite a stray dialog`);
+  }
+  for (const reason of dndFailures) {
+    failures++;
+    console.log(`RED    ${'drag & drop injection'.padEnd(22)} ${reason}`);
+  }
+
+  const loopFailures = await checkDocPreviewLoopGuard();
+  if (loopFailures.length === 0) {
+    console.log(`GREEN  ${'document preview loop'.padEnd(22)} duplicate re-open suppressed, fresh click honoured, reason reported`);
+  }
+  for (const reason of loopFailures) {
+    failures++;
+    console.log(`RED    ${'document preview loop'.padEnd(22)} ${reason}`);
+  }
+
+  const micFailures = await checkCaptureDiagnostics();
+  if (micFailures.length === 0) {
+    console.log(`GREEN  ${'capture probe'.padEnd(22)} constraints and track settings recorded, call path untouched`);
+  }
+  for (const reason of micFailures) {
+    failures++;
+    console.log(`RED    ${'capture probe'.padEnd(22)} ${reason}`);
+  }
+
   if (failures) {
-    console.log(`\nFAIL: ${failures} scenario(s) leave the user with no (or duplicate) Settings entry point, or expose the spreadsheet preview.`);
+    console.log(`\nFAIL: ${failures} harness invariant(s) violated: Settings reachability, spreadsheet sanitizing, drag & drop, document preview looping, or the capture probe.`);
     process.exit(1);
   }
-  console.log('\nPASS: no single injected-script failure removes the Settings entry point or the Ctrl+, shortcut, and the spreadsheet sanitizer neutralizes cell markup.');
+  console.log('\nPASS: Settings stays reachable under injected failures, the spreadsheet sanitizer neutralizes cell markup, a dropped file reaches the composer, the document preview cannot loop, and the capture probe is invisible.');
   process.exit(0);
 }
 

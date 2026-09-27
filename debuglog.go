@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -77,6 +78,12 @@ func homeDirOrDot() string {
 
 func cacheDebugLog(format string, args ...interface{}) {
 	if !debugEnabled() {
+		return
+	}
+	// A test run must never append to the real profile log. It resolves to the
+	// same path, so `go test` used to interleave its own lines (e.g. an update
+	// check with a fixture version) into the log a user is asked to read.
+	if testing.Testing() {
 		return
 	}
 	debugLogMu.Lock()

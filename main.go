@@ -455,14 +455,22 @@ func getInitScript(ua string) string {
 		// Dismiss WhatsApp Web's internal stuck viewer overlay
 		function dismissStuckViewer() {
 			var attempts = 0;
+			// Bounded and gentle on purpose. This used to hammer WhatsApp's
+			// viewer for 2.4s (30 rounds of 80ms), clicking close buttons and
+			// dispatching synthetic Escape events - which fought the page and
+			// helped turn a re-opened document into a preview loop. Eight
+			// rounds is plenty for the overlay to mount, and nothing is sent
+			// when there is no viewer to dismiss.
+			var maxAttempts = 8;
 			var dismissTimer = setInterval(function() {
 				attempts++;
-				if (attempts > 30) {
+				if (attempts > maxAttempts) {
 					clearInterval(dismissTimer);
 					return;
 				}
 				var viewer = document.querySelector('[data-testid="media-viewer"], [data-animate-media-viewer="true"]');
 				if (!viewer) {
+					if (attempts > 3) clearInterval(dismissTimer);
 					return;
 				}
 				var closeSelectors = [
@@ -932,6 +940,7 @@ func getInitScript(ua string) string {
 				var targetInput = isMedia ? findMediaInput() : findDocumentInput();
 				if (targetInput && setFilesOnInput(targetInput, files)) {
 					waDiag('drop', 'injected ' + files.length + ' file(s) as ' + (isMedia ? 'media' : 'document') + ' (attempt ' + attempt + ')');
+					dropInProgress = false;
 					return true;
 				}
 
@@ -945,6 +954,7 @@ func getInitScript(ua string) string {
 					setTimeout(function() { injectFiles(files, attempt + 1, isMedia); }, 40);
 				} else {
 					waDiag('drop', 'gave up: no file input appeared after 40 attempts');
+					dropInProgress = false;
 				}
 				return false;
 			}
@@ -982,6 +992,9 @@ func getInitScript(ua string) string {
 				// Prevent browser navigation (navigating to file:// URL)
 				e.preventDefault();
 				lastUploadAt = Date.now(); // prevent download interceptor from triggering
+				// A second drop arriving while this one is still being staged
+				// would inject over the first batch.
+				dropInProgress = true;
 
 				// Do NOT stopImmediatePropagation so WhatsApp's native drop handler
 				// on #main / conversation-panel receives the drop event for BOTH
@@ -1018,8 +1031,12 @@ func getInitScript(ua string) string {
 					if (staged || waNativeEditorChecks >= 4) {
 						clearInterval(waNativeEditorPoll);
 						waDiag('drop', 'native staging after ' + waNativeEditorChecks + ' probe(s): ' + staged);
-						if (!staged) {
+						if (staged) {
+							dropInProgress = false;
+						} else {
+							// Cleared by injectFiles when the retry loop settles.
 							injectFiles(files, 0, isMedia);
+							setTimeout(function() { dropInProgress = false; }, 4000);
 						}
 					}
 				}, 350);
@@ -1564,6 +1581,10 @@ func getInitScript(ua string) string {
 					// a fresh user click resets the intent and is honoured again.
 					if (name === lastDocPreviewName && (Date.now() - lastDocPreviewAt) < docPreviewCooldownMs) {
 						waDiag('doc', 'loop guard: skipped re-preview of ' + name + ' after ' + (Date.now() - lastDocPreviewAt) + 'ms');
+						// A background re-open, never a user action: a real click
+						// clears the guard above. Recorded (not shown) so a
+						// "preview did nothing" report carries the reason.
+						if (window.__waNote) window.__waNote('doc preview', 'suppressed duplicate re-open of ' + name);
 						return url;
 					}
 					lastDocPreviewName = name;
@@ -1791,6 +1812,21 @@ func getInitScript(ua string) string {
 				waErrBuf.push({ k: kind, m: msg, n: 1 });
 				if (waErrBuf.length > 25) waErrBuf.shift();
 			}
+			// Deliberate decisions that changed what the user saw, as opposed to
+			// errors. A report saying "the document preview did nothing" is only
+			// actionable if it also says the loop guard suppressed the re-open,
+			// so these travel with the report instead of living only in the
+			// debug log the reporter has to know how to switch on.
+			var waNotes = [];
+			window.__waNote = function(kind, msg) {
+				try {
+					msg = String(kind) + ': ' + String(msg == null ? '' : msg).slice(0, 200);
+					var last = waNotes[waNotes.length - 1];
+					if (last && last.m === msg) { last.n++; return; }
+					waNotes.push({ m: msg, n: 1 });
+					if (waNotes.length > 25) waNotes.shift();
+				} catch (e) {}
+			};
 			window.addEventListener('error', function(e) {
 				var src = '';
 				try { src = String(e.filename || '').split('/').pop(); } catch (x) {}
@@ -1816,6 +1852,13 @@ func getInitScript(ua string) string {
 					lines.push('');
 				} else {
 					lines.push('No page errors captured.');
+					lines.push('');
+				}
+				if (waNotes.length) {
+					lines.push('Feature notes:');
+					waNotes.slice(-8).forEach(function(e) {
+						lines.push('- ' + e.m + (e.n > 1 ? ' (x' + e.n + ')' : ''));
+					});
 					lines.push('');
 				}
 				if (crashTail) {
@@ -2623,6 +2666,86 @@ func getInitScript(ua string) string {
 					e.target.muted = true;
 				}
 			}, true);
+		});
+
+		// Capture diagnostics (issue #57: "the other person can't hear our voice
+		// clearly, it's broken like a robot").
+		//
+		// The app never intercepted capture, so that report had no evidence to
+		// work from - only a guess about Chrome-shaped WebRTC paths running on
+		// WebKit. This records what the page asks for and what the engine
+		// actually grants, so the next report can be answered with numbers.
+		//
+		// Deliberately a pass-through. The original function is called with the
+		// caller's own receiver and arguments, and its return value is handed
+		// back untouched. Forcing mono or switching audio processing off here
+		// would be an unverified change to every call, and a wrong guess makes
+		// calls worse, not better.
+		waRunModule('capture-diagnostics', function() {
+			var md = navigator.mediaDevices;
+			if (!md || typeof md.getUserMedia !== 'function' || md.__waCaptureProbe) return;
+			var original = md.getUserMedia;
+
+			function describeConstraints(c) {
+				try {
+					if (c === undefined || c === null) return 'none';
+					if (typeof c !== 'object') return String(c);
+					var parts = [];
+					['audio', 'video'].forEach(function(k) {
+						var v = c[k];
+						if (v === undefined) return;
+						if (v === true || v === false || typeof v === 'string') {
+							parts.push(k + '=' + String(v));
+							return;
+						}
+						if (typeof v !== 'object') { parts.push(k + '=?'); return; }
+						var inner = [];
+						Object.keys(v).forEach(function(f) {
+							inner.push(f + ':' + String(v[f]));
+						});
+						parts.push(k + '={' + inner.join(',') + '}');
+					});
+					return parts.join(' ') || 'empty';
+				} catch (e) {
+					return 'unreadable';
+				}
+			}
+			function describeStream(stream) {
+				try {
+					if (!stream || typeof stream.getAudioTracks !== 'function') return 'no stream';
+					var tracks = stream.getAudioTracks();
+					if (!tracks.length) return 'no audio track';
+					var out = [];
+					for (var i = 0; i < tracks.length; i++) {
+						var s = {};
+						try { s = (tracks[i].getSettings && tracks[i].getSettings()) || {}; } catch (e) {}
+						out.push('ch=' + s.channelCount + ' rate=' + s.sampleRate +
+							' ec=' + s.echoCancellation + ' ns=' + s.noiseSuppression +
+							' agc=' + s.autoGainControl +
+							' device=' + String(tracks[i].label || '?').slice(0, 60));
+					}
+					return out.join(' | ');
+				} catch (e) {
+					return 'unreadable';
+				}
+			}
+
+			md.getUserMedia = function() {
+				var args = arguments;
+				try { waDiag('mic', 'getUserMedia constraints: ' + describeConstraints(args[0])); } catch (e) {}
+				var result = original.apply(md, args);
+				try {
+					if (result && typeof result.then === 'function') {
+						result.then(function(stream) {
+							try { waDiag('mic', 'granted: ' + describeStream(stream)); } catch (e) {}
+						}, function(err) {
+							try { waDiag('mic', 'rejected: ' + String((err && err.name) || err)); } catch (e) {}
+						});
+					}
+				} catch (e) {}
+				return result;
+			};
+			md.__waCaptureProbe = true;
 		});
 
 		// Auto-Start at Login Toggle (Cmd/Ctrl + Shift + S)
