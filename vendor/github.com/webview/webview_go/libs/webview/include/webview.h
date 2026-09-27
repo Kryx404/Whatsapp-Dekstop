@@ -1781,16 +1781,31 @@ public:
     // from its superview (dropped by removeFromSuperview).
     struct leftover_view {
       id view;
+      bool debug;
     };
-    auto *leftover = new leftover_view{previous_view};
+    // WA_DESK_DEBUG=1 prints the park lifecycle: with it, a switch shows
+    // "parked outgoing view" followed by "parked view destroyed ~1.5s" —
+    // proof that only one web engine stays alive at rest.
+    const bool park_debug = std::getenv("WA_DESK_DEBUG") != nullptr &&
+                            std::string(std::getenv("WA_DESK_DEBUG")) == "1";
+    if (park_debug) {
+      fprintf(stderr, "[wa-desk-park] outgoing view parked (two engines "
+                      "alive until teardown)\n");
+    }
+    auto *leftover = new leftover_view{previous_view, park_debug};
     dispatch_after_f(
         dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
         dispatch_get_main_queue(), leftover,
         [](void *arg) {
           auto *lv = static_cast<leftover_view *>(arg);
+          const bool debug = lv->debug;
           objc::msg_send<void>(lv->view, "removeFromSuperview"_sel);
           objc::msg_send<void>(lv->view, "release"_sel);
           delete lv;
+          if (debug) {
+            fprintf(stderr, "[wa-desk-park] parked view destroyed (one "
+                            "engine alive again)\n");
+          }
         });
   }
   void run_impl() override {
