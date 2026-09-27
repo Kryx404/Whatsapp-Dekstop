@@ -986,21 +986,39 @@ func getInitScript(ua string) string {
 				// Do NOT stopImmediatePropagation so WhatsApp's native drop handler
 				// on #main / conversation-panel receives the drop event for BOTH
 				// media (photos/videos) and documents (PDF, Office, etc.).
-				// Fallback: if WhatsApp's native editor has not appeared after a
-				// few probes, attempt programmatic injection. A single 400ms
-				// check raced the editor mount on slower machines and injected a
-				// second batch over the native one, so probe several rounds and
-				// only inject when no editor has shown up the whole time.
+				//
+				// The probe that decides whether that native handler worked used
+				// to accept any [role="dialog"] as proof. WhatsApp keeps dialog
+				// containers mounted permanently, so the probe always concluded
+				// "WhatsApp handled it", the injection fallback never ran, and a
+				// dropped file silently did nothing. Only a real staging surface
+				// counts now, and for documents it must also mention the dropped
+				// file name, so an unrelated open dialog cannot masquerade as one.
+				var droppedNames = files.map(function(f) { return String(f.name || '').toLowerCase(); }).filter(Boolean);
+				function waDropStaged() {
+					var editor = document.querySelector(
+						'[data-testid="media-editor"], [data-testid="image-editor"], ' +
+						'[data-testid="drawer-middle"], [data-testid="document-preview"], ' +
+						'[data-animate-modal-popup="true"]'
+					);
+					if (!editor) return false;
+					// The media editor exists only once media has been staged.
+					if (isMedia) return true;
+					var text = String(editor.textContent || '').toLowerCase();
+					for (var i = 0; i < droppedNames.length; i++) {
+						if (droppedNames[i] && text.indexOf(droppedNames[i]) !== -1) return true;
+					}
+					return false;
+				}
+
 				var waNativeEditorChecks = 0;
 				var waNativeEditorPoll = setInterval(function() {
 					waNativeEditorChecks++;
-					var modalOpen = document.querySelector(
-						'[data-testid="media-editor"], [data-testid="image-editor"], ' +
-						'[data-testid="drawer-middle"], [role="dialog"], [data-animate-modal-popup="true"]'
-					);
-					if (modalOpen || waNativeEditorChecks >= 4) {
+					var staged = waDropStaged();
+					if (staged || waNativeEditorChecks >= 4) {
 						clearInterval(waNativeEditorPoll);
-						if (!modalOpen) {
+						waDiag('drop', 'native staging after ' + waNativeEditorChecks + ' probe(s): ' + staged);
+						if (!staged) {
 							injectFiles(files, 0, isMedia);
 						}
 					}
