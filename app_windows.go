@@ -712,6 +712,9 @@ func runApp() {
 		_ = w.Bind("getNotificationsEnabledNative", getNotificationsEnabled)
 		_ = w.Bind("setNotificationsEnabledNative", setNotificationsEnabled)
 
+		// Page-side diagnostics (drag & drop, document preview, switch steps).
+		_ = w.Bind("waDiagNative", diagLogFromPage)
+
 		_ = w.Bind("releaseMemoryNative", func() {
 			// Note: do NOT call w.Suspend() here. The webview2 vendor library already
 			// suspends/resumes the WebView2 renderer symmetrically on real minimize/restore

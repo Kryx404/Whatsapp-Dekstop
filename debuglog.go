@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -19,8 +21,40 @@ var (
 	debugStartedAt = time.Now()
 )
 
+// debugMarkerPath is the opt-in file that enables diagnostics without an
+// environment variable. A Finder/Dock launch cannot pass WA_DESK_DEBUG, and
+// asking a user to run the binary from a terminal is a non-starter, so an empty
+// file in the profile directory turns the same logging on; deleting it turns it
+// off again. Nothing is uploaded either way.
+func debugMarkerPath() string {
+	return filepath.Join(filepath.Dir(debugLogPath()), "enable_diag")
+}
+
 func debugEnabled() bool {
-	return os.Getenv("WA_DESK_DEBUG") == "1"
+	if os.Getenv("WA_DESK_DEBUG") == "1" {
+		return true
+	}
+	_, err := os.Stat(debugMarkerPath())
+	return err == nil
+}
+
+// diagLogFromPage records a page-side diagnostic (drag & drop, document
+// preview, account switch) into the same local log. Gated by debugEnabled so
+// the steady-state cost for normal users is a single stat call.
+func diagLogFromPage(kind, detail string) bool {
+	if !debugEnabled() {
+		return false
+	}
+	kind = strings.TrimSpace(strings.ReplaceAll(kind, "\n", " "))
+	detail = strings.TrimSpace(strings.ReplaceAll(detail, "\n", " "))
+	if len(kind) > 40 {
+		kind = kind[:40]
+	}
+	if len(detail) > 300 {
+		detail = detail[:300]
+	}
+	cacheDebugLog("page %s: %s", kind, detail)
+	return true
 }
 
 func debugLogPath() string {
@@ -44,6 +78,12 @@ func homeDirOrDot() string {
 
 func cacheDebugLog(format string, args ...interface{}) {
 	if !debugEnabled() {
+		return
+	}
+	// A test run must never append to the real profile log. It resolves to the
+	// same path, so `go test` used to interleave its own lines (e.g. an update
+	// check with a fixture version) into the log a user is asked to read.
+	if testing.Testing() {
 		return
 	}
 	debugLogMu.Lock()

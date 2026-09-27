@@ -801,6 +801,9 @@ func runApp() {
 			enforceDiskCacheCapFrom(linuxCacheHomes, linuxPurgeTargets, "minimize")
 		})
 
+		// Page-side diagnostics (drag & drop, document preview, switch steps).
+		_ = w.Bind("waDiagNative", diagLogFromPage)
+
 		// Bind external link handler (xdg-open)
 		_ = w.Bind("openExternalLink", func(rawURL string) {
 			if strings.HasPrefix(rawURL, "http://") || strings.HasPrefix(rawURL, "https://") {

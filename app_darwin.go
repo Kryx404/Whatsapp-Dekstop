@@ -611,6 +611,19 @@ static BOOL showNativePDFPreview(const char* pathStr) {
                 [g_pdfPreviewWindow center];
             }
 
+            // Already showing this exact file: raise it instead of rebuilding the
+            // PDFView. Repeated rebuilds on the same path were what made a
+            // re-triggered preview look like it was looping.
+            if ([g_pdfPreviewWindow isVisible] &&
+                [[g_pdfPreviewWindow title] isEqualToString:[path lastPathComponent]]) {
+                [g_pdfPreviewWindow makeKeyAndOrderFront:nil];
+                [NSApp activateIgnoringOtherApps:YES];
+#if !__has_feature(objc_arc)
+                [document release];
+#endif
+                return;
+            }
+
             NSRect pdfFrame = [[g_pdfPreviewWindow contentView] bounds];
             if (NSIsEmptyRect(pdfFrame)) {
                 NSRect contentRect = [g_pdfPreviewWindow contentRectForFrameRect:[g_pdfPreviewWindow frame]];
@@ -1194,20 +1207,40 @@ func runApp() {
 	for {
 		profileID, err := activeAccountProfileIdentifier()
 		if err != nil {
-			log.Printf("unable to load account profile: %v", err)
-			return
+			// Never exit because the registry could not be read: a transient
+			// read failure (e.g. a partial write racing this read) used to
+			// return from runApp, which closes the app with no window, no crash
+			// report and no explanation - indistinguishable from a crash. Fall
+			// back to the default profile instead; the dock can still switch.
+			cacheDebugLog("account profile unavailable (%v); falling back to the default profile", err)
+			profileID = ""
 		}
 		if profileID == "" {
 			_ = os.Unsetenv("WA_DESK_PROFILE_UUID")
 		} else if err := os.Setenv("WA_DESK_PROFILE_UUID", profileID); err != nil {
-			log.Printf("unable to select account profile: %v", err)
-			return
+			cacheDebugLog("unable to select account profile (%v); using the default profile", err)
+			_ = os.Unsetenv("WA_DESK_PROFILE_UUID")
 		}
 		cacheDebugLog("startup: pid=%d profile=%s account=%s", os.Getpid(), userDataDir, profileID)
 
 		w := webview.New(false)
 		if w == nil {
-			log.Fatalln("Gagal inisialisasi WebKit WebView")
+			// A nil WebView used to be fatal (log.Fatalln), which killed the
+			// app the moment a rebuild after a failed in-place swap could not
+			// get a fresh WebKit view. Retry briefly first, then report the
+			// failure instead of vanishing silently.
+			cacheDebugLog("webview.New returned nil; retrying")
+			var retry webview.WebView
+			for attempt := 1; attempt <= 3 && retry == nil; attempt++ {
+				time.Sleep(time.Duration(attempt) * 400 * time.Millisecond)
+				retry = webview.New(false)
+				cacheDebugLog("webview.New retry %d -> %v", attempt, retry != nil)
+			}
+			if retry == nil {
+				writeCrashReport("runApp:webview-nil", fmt.Errorf("WebKit WebView could not be created after retries"))
+				log.Fatalln("Gagal inisialisasi WebKit WebView")
+			}
+			w = retry
 		}
 
 		// 1. Configure window behavior: dark title bar, close-to-hide, and dock click reopen
@@ -1258,6 +1291,10 @@ func runApp() {
 				cacheDebugLog("cache disk total: %.0f MB", float64(C.whatsappDeskDiskCacheBytesSync())/1024/1024)
 			}
 		})
+
+		// Page-side diagnostics (drag & drop, document preview, switch steps).
+		// No-op unless diagnostics are enabled, so it costs one stat call.
+		_ = w.Bind("waDiagNative", diagLogFromPage)
 
 		// 7. Bind external link handler to open links in macOS default browser
 		_ = w.Bind("openExternalLink", func(rawURL string) {
@@ -1432,6 +1469,12 @@ func runApp() {
 		// path that stops the loop and lets the next iteration rebuild the WebView.
 		switchRequested := false
 		switchMu := make(chan struct{}, 1)
+		// The outgoing view is parked on top for 1.5s before it is torn down
+		// (see recreate_browser_impl). A second switch inside that window would
+		// leave two parked engines alive and interleave their teardowns, so
+		// requests are ignored until the previous swap has fully settled.
+		var lastSwapAt time.Time
+		const swapSettleDelay = 1500 * time.Millisecond
 		_ = w.Bind("getAccountsNative", func() []map[string]any {
 			accounts, err := accountsForUI()
 			if err != nil {
@@ -1457,19 +1500,27 @@ func runApp() {
 			if switchRequested || isActiveAccount(id) {
 				return false
 			}
+			if !lastSwapAt.IsZero() && time.Since(lastSwapAt) < swapSettleDelay {
+				cacheDebugLog("account switch ignored: previous swap still settling")
+				return false
+			}
 			// Snapshot the outgoing account's unread badge before flipping the
 			// registry, so the dock can hint "unread when last seen" on the chip.
 			_ = setLastUnreadForActiveAccount(lastUnread)
 			if setActiveAccount(id) != nil {
+				cacheDebugLog("account switch failed: could not set the active account")
 				return false
 			}
+			cacheDebugLog("account switch requested: %s", id)
 			// Serialized: a second request arriving while a swap is in flight is
 			// dropped rather than racing the one already queued.
 			select {
 			case switchMu <- struct{}{}:
 			default:
+				cacheDebugLog("account switch dropped: another swap is in flight")
 				return false
 			}
+			lastSwapAt = time.Now()
 			// Deferred to the next main-thread turn instead of running inline: this
 			// callback is still executing inside the very WebView that is about to
 			// be released, and webview_return() for this call still targets it.
@@ -1479,6 +1530,7 @@ func runApp() {
 					return
 				}
 				// Fallback: stop the loop so the next iteration rebuilds from scratch.
+				cacheDebugLog("in-place swap unavailable; rebuilding the WebView")
 				switchRequested = true
 				w.Terminate()
 			})
@@ -1527,6 +1579,11 @@ func runApp() {
 
 		w.Run()
 		close(stopUpdateTicker)
+		// A run loop that ends without a switch request means the app is about
+		// to exit. Log it with the reason, so "it just closed by itself" can be
+		// told apart from a hard crash (which would leave a crash report).
+		cacheDebugLog("run loop returned (switchRequested=%v) - app will %s",
+			switchRequested, map[bool]string{true: "rebuild the WebView", false: "exit"}[switchRequested])
 		saveWindowState(userDataDir, w.Window())
 		w.Destroy()
 

@@ -59,6 +59,17 @@ func getInitScript(ua string) string {
 			}
 		}
 
+		// --- Page-side diagnostics ---------------------------------------
+		// Reports what the injected features actually did (drag & drop, document
+		// preview, account switch) to the native debug log. The native side
+		// ignores it unless diagnostics are enabled, so this stays a cheap call
+		// in normal use and needs no round trip.
+		function waDiag(kind, detail) {
+			try {
+				if (window.waDiagNative) window.waDiagNative(String(kind), String(detail == null ? '' : detail).slice(0, 300));
+			} catch (e) {}
+		}
+
 		// --- Recoverable-failure log --------------------------------------
 		// Non-fatal problems are recorded instead of thrown so one degraded
 		// feature never disables the rest of the injected script. Bounded, and
@@ -444,14 +455,22 @@ func getInitScript(ua string) string {
 		// Dismiss WhatsApp Web's internal stuck viewer overlay
 		function dismissStuckViewer() {
 			var attempts = 0;
+			// Bounded and gentle on purpose. This used to hammer WhatsApp's
+			// viewer for 2.4s (30 rounds of 80ms), clicking close buttons and
+			// dispatching synthetic Escape events - which fought the page and
+			// helped turn a re-opened document into a preview loop. Eight
+			// rounds is plenty for the overlay to mount, and nothing is sent
+			// when there is no viewer to dismiss.
+			var maxAttempts = 8;
 			var dismissTimer = setInterval(function() {
 				attempts++;
-				if (attempts > 30) {
+				if (attempts > maxAttempts) {
 					clearInterval(dismissTimer);
 					return;
 				}
 				var viewer = document.querySelector('[data-testid="media-viewer"], [data-animate-media-viewer="true"]');
 				if (!viewer) {
+					if (attempts > 3) clearInterval(dismissTimer);
 					return;
 				}
 				var closeSelectors = [
@@ -501,6 +520,12 @@ func getInitScript(ua string) string {
 		// Track clicked document filenames with robust regex matching
 		var lastClickedDocName = '';
 		var lastDocumentIntentAt = 0;
+		// Loop guard state for the automatic document preview: the same
+		// document is only auto-previewed once per cooldown window, so a
+		// re-created blob cannot reopen the viewer in a loop.
+		var lastDocPreviewName = '';
+		var lastDocPreviewAt = 0;
+		var docPreviewCooldownMs = 8000;
 		function extractDocumentName(el) {
 			if (!el || typeof el.closest !== 'function') return '';
 			// NEVER extract document names from inside the media viewer, modal dialogs, or top toolbars
@@ -543,6 +568,10 @@ func getInitScript(ua string) string {
 			if (name) {
 				lastClickedDocName = name;
 				lastDocumentIntentAt = Date.now();
+				// An explicit click is fresh intent: clear the loop guard so the
+				// same document can be previewed again on purpose.
+				lastDocPreviewName = '';
+				lastDocPreviewAt = 0;
 			}
 		}, true);
 
@@ -687,6 +716,11 @@ func getInitScript(ua string) string {
 			function handleDragEnter(e) {
 				if (!isFileDrag(e) || !isChatDrop(e)) return;
 				dragCounter++;
+				if (dragCounter === 1) {
+					var kinds = '';
+					try { kinds = (e.dataTransfer && e.dataTransfer.types) ? Array.prototype.join.call(e.dataTransfer.types, ',') : ''; } catch (err) {}
+					waDiag('drag', 'file drag entered (types=' + kinds + ')');
+				}
 				e.preventDefault();
 				// Do NOT stopPropagation — let WhatsApp's own dragenter handlers also fire
 				// so its native drop zone activates (needed for document drops)
@@ -862,17 +896,65 @@ func getInitScript(ua string) string {
 				}
 			}
 
+			// WhatsApp mounts its file inputs lazily: until the attach menu has
+			// been opened there is often no input[type=file] in the DOM at all,
+			// so the injection below found nothing and a dropped file did
+			// nothing visible. Clicking the attach button forces WhatsApp to
+			// render the menu (and with it the inputs) so the retry loop can
+			// fill them. The menu item itself is only clicked for media, where
+			// it merely mounts the in-app editor; the document entry opens the
+			// OS file picker, which must never appear behind the user's back.
+			function openAttachMenuForInjection(isMedia) {
+				var btn = findAttachButton();
+				if (!btn) return false;
+				var opened = false;
+				try {
+					btn.click();
+					opened = true;
+				} catch (e) {}
+				if (!opened) return false;
+				if (isMedia) {
+					var itemSelectors = [
+						'li[data-testid*="attach-media"]',
+						'[data-testid*="attach-media"]',
+						'[data-icon="attach-image"]',
+						'[aria-label*="Photos & videos" i]',
+						'[aria-label*="Foto & video" i]'
+					];
+					for (var i = 0; i < itemSelectors.length; i++) {
+						var el = document.querySelector(itemSelectors[i]);
+						if (el) {
+							var clickable = (el.closest && el.closest('li, [role="button"], button')) || el;
+							try { clickable.click(); } catch (e) {}
+							break;
+						}
+					}
+				}
+				return true;
+			}
+
 			// Only used for media injection (documents are handled natively by WhatsApp).
 			function injectFiles(files, attempt, isMedia) {
 				if (isMedia === undefined) isMedia = areAllMediaFiles(files);
 
 				var targetInput = isMedia ? findMediaInput() : findDocumentInput();
 				if (targetInput && setFilesOnInput(targetInput, files)) {
+					waDiag('drop', 'injected ' + files.length + ' file(s) as ' + (isMedia ? 'media' : 'document') + ' (attempt ' + attempt + ')');
+					dropInProgress = false;
 					return true;
+				}
+
+				// Give WhatsApp a nudge to mount its inputs, then keep probing.
+				if (attempt === 6 || attempt === 18) {
+					var opened = openAttachMenuForInjection(isMedia);
+					waDiag('drop', 'no ' + (isMedia ? 'media' : 'document') + ' input at attempt ' + attempt + '; attach menu ' + (opened ? 'opened' : 'not found'));
 				}
 
 				if (attempt < 40) {
 					setTimeout(function() { injectFiles(files, attempt + 1, isMedia); }, 40);
+				} else {
+					waDiag('drop', 'gave up: no file input appeared after 40 attempts');
+					dropInProgress = false;
 				}
 				return false;
 			}
@@ -894,36 +976,67 @@ func getInitScript(ua string) string {
 				// from the @mention popup, while typing and Enter kept
 				// working.
 				clearDragVisualState();
-				if (!isFileDrag(e) || !isChatDrop(e) || dropInProgress) return;
+				if (!isFileDrag(e)) { waDiag('drop', 'ignored: no Files in dataTransfer'); return; }
+				if (!isChatDrop(e)) { waDiag('drop', 'ignored: excluded target'); return; }
+				if (dropInProgress) { waDiag('drop', 'ignored: another drop is in progress'); return; }
 
 				var files = Array.prototype.slice.call((e.dataTransfer && e.dataTransfer.files) || []);
-				if (!files || files.length === 0) return;
+				if (!files || files.length === 0) { waDiag('drop', 'ignored: empty file list'); return; }
 
 				var isMedia = areAllMediaFiles(files);
+				var described = files.slice(0, 3).map(function(f) {
+					return (f.name || '?') + ' [' + (f.type || '?') + ', ' + (f.size || 0) + 'B]';
+				}).join('; ');
+				waDiag('drop', 'received ' + files.length + ' file(s) media=' + isMedia + ': ' + described);
 
 				// Prevent browser navigation (navigating to file:// URL)
 				e.preventDefault();
 				lastUploadAt = Date.now(); // prevent download interceptor from triggering
+				// A second drop arriving while this one is still being staged
+				// would inject over the first batch.
+				dropInProgress = true;
 
 				// Do NOT stopImmediatePropagation so WhatsApp's native drop handler
 				// on #main / conversation-panel receives the drop event for BOTH
 				// media (photos/videos) and documents (PDF, Office, etc.).
-				// Fallback: if WhatsApp's native editor has not appeared after a
-				// few probes, attempt programmatic injection. A single 400ms
-				// check raced the editor mount on slower machines and injected a
-				// second batch over the native one, so probe several rounds and
-				// only inject when no editor has shown up the whole time.
+				//
+				// The probe that decides whether that native handler worked used
+				// to accept any [role="dialog"] as proof. WhatsApp keeps dialog
+				// containers mounted permanently, so the probe always concluded
+				// "WhatsApp handled it", the injection fallback never ran, and a
+				// dropped file silently did nothing. Only a real staging surface
+				// counts now, and for documents it must also mention the dropped
+				// file name, so an unrelated open dialog cannot masquerade as one.
+				var droppedNames = files.map(function(f) { return String(f.name || '').toLowerCase(); }).filter(Boolean);
+				function waDropStaged() {
+					var editor = document.querySelector(
+						'[data-testid="media-editor"], [data-testid="image-editor"], ' +
+						'[data-testid="drawer-middle"], [data-testid="document-preview"], ' +
+						'[data-animate-modal-popup="true"]'
+					);
+					if (!editor) return false;
+					// The media editor exists only once media has been staged.
+					if (isMedia) return true;
+					var text = String(editor.textContent || '').toLowerCase();
+					for (var i = 0; i < droppedNames.length; i++) {
+						if (droppedNames[i] && text.indexOf(droppedNames[i]) !== -1) return true;
+					}
+					return false;
+				}
+
 				var waNativeEditorChecks = 0;
 				var waNativeEditorPoll = setInterval(function() {
 					waNativeEditorChecks++;
-					var modalOpen = document.querySelector(
-						'[data-testid="media-editor"], [data-testid="image-editor"], ' +
-						'[data-testid="drawer-middle"], [role="dialog"], [data-animate-modal-popup="true"]'
-					);
-					if (modalOpen || waNativeEditorChecks >= 4) {
+					var staged = waDropStaged();
+					if (staged || waNativeEditorChecks >= 4) {
 						clearInterval(waNativeEditorPoll);
-						if (!modalOpen) {
+						waDiag('drop', 'native staging after ' + waNativeEditorChecks + ' probe(s): ' + staged);
+						if (staged) {
+							dropInProgress = false;
+						} else {
+							// Cleared by injectFiles when the retry loop settles.
 							injectFiles(files, 0, isMedia);
+							setTimeout(function() { dropInProgress = false; }, 4000);
 						}
 					}
 				}, 350);
@@ -1101,11 +1214,24 @@ func getInitScript(ua string) string {
 			// On macOS, render the already-saved file with PDFKit instead.
 			if (isPdf && savedPath && window.showPDFPreviewNative) {
 				if (window.dismissStuckViewer) window.dismissStuckViewer();
-				window.showPDFPreviewNative(savedPath);
-				if (ownedBlobUrl) {
-					try { URL.revokeObjectURL(ownedBlobUrl); } catch (e) {}
+				var opened = false;
+				try {
+					opened = !!window.showPDFPreviewNative(savedPath);
+				} catch (e) {
+					waDiag('doc', 'native PDF preview threw: ' + (e && e.message ? e.message : e));
 				}
-				return;
+				waDiag('doc', 'native PDF preview for ' + filename + ' -> ' + opened);
+				if (opened) {
+					if (ownedBlobUrl) {
+						try { URL.revokeObjectURL(ownedBlobUrl); } catch (e) {}
+					}
+					return;
+				}
+				// PDFKit could not take the file (missing, unreadable, or a
+				// rejected path): fall through to the card below so the user
+				// still has an explicit way to open or save it. The blob URL is
+				// intentionally not revoked here - the card still needs it.
+				showFloatingToast('⚠️ Could not render this PDF in-app — open it instead');
 			}
 
 			var docIcon = '📄';
@@ -1448,6 +1574,22 @@ func getInitScript(ua string) string {
 						else if (bType.indexOf('word') >= 0) name += '.docx';
 						else name += '.pdf';
 					}
+					// Loop guard. Dismissing WhatsApp's own viewer can make it
+					// re-create the attachment blob, which re-entered this
+					// interceptor and re-opened the preview window in a loop.
+					// The same document is only auto-previewed once per window;
+					// a fresh user click resets the intent and is honoured again.
+					if (name === lastDocPreviewName && (Date.now() - lastDocPreviewAt) < docPreviewCooldownMs) {
+						waDiag('doc', 'loop guard: skipped re-preview of ' + name + ' after ' + (Date.now() - lastDocPreviewAt) + 'ms');
+						// A background re-open, never a user action: a real click
+						// clears the guard above. Recorded (not shown) so a
+						// "preview did nothing" report carries the reason.
+						if (window.__waNote) window.__waNote('doc preview', 'suppressed duplicate re-open of ' + name);
+						return url;
+					}
+					lastDocPreviewName = name;
+					lastDocPreviewAt = Date.now();
+					waDiag('doc', 'previewing ' + name + ' (type=' + bType + ', ' + blob.size + 'B)');
 					var isPdf = name.toLowerCase().endsWith('.pdf');
 					var previewBlob = isPdf ? blob.slice(0, blob.size, 'application/pdf') : blob;
 					var ownedBlobUrl = isPdf ? origCreateObjectURL(previewBlob) : '';
@@ -1670,6 +1812,21 @@ func getInitScript(ua string) string {
 				waErrBuf.push({ k: kind, m: msg, n: 1 });
 				if (waErrBuf.length > 25) waErrBuf.shift();
 			}
+			// Deliberate decisions that changed what the user saw, as opposed to
+			// errors. A report saying "the document preview did nothing" is only
+			// actionable if it also says the loop guard suppressed the re-open,
+			// so these travel with the report instead of living only in the
+			// debug log the reporter has to know how to switch on.
+			var waNotes = [];
+			window.__waNote = function(kind, msg) {
+				try {
+					msg = String(kind) + ': ' + String(msg == null ? '' : msg).slice(0, 200);
+					var last = waNotes[waNotes.length - 1];
+					if (last && last.m === msg) { last.n++; return; }
+					waNotes.push({ m: msg, n: 1 });
+					if (waNotes.length > 25) waNotes.shift();
+				} catch (e) {}
+			};
 			window.addEventListener('error', function(e) {
 				var src = '';
 				try { src = String(e.filename || '').split('/').pop(); } catch (x) {}
@@ -1695,6 +1852,13 @@ func getInitScript(ua string) string {
 					lines.push('');
 				} else {
 					lines.push('No page errors captured.');
+					lines.push('');
+				}
+				if (waNotes.length) {
+					lines.push('Feature notes:');
+					waNotes.slice(-8).forEach(function(e) {
+						lines.push('- ' + e.m + (e.n > 1 ? ' (x' + e.n + ')' : ''));
+					});
 					lines.push('');
 				}
 				if (crashTail) {
@@ -2502,6 +2666,86 @@ func getInitScript(ua string) string {
 					e.target.muted = true;
 				}
 			}, true);
+		});
+
+		// Capture diagnostics (issue #57: "the other person can't hear our voice
+		// clearly, it's broken like a robot").
+		//
+		// The app never intercepted capture, so that report had no evidence to
+		// work from - only a guess about Chrome-shaped WebRTC paths running on
+		// WebKit. This records what the page asks for and what the engine
+		// actually grants, so the next report can be answered with numbers.
+		//
+		// Deliberately a pass-through. The original function is called with the
+		// caller's own receiver and arguments, and its return value is handed
+		// back untouched. Forcing mono or switching audio processing off here
+		// would be an unverified change to every call, and a wrong guess makes
+		// calls worse, not better.
+		waRunModule('capture-diagnostics', function() {
+			var md = navigator.mediaDevices;
+			if (!md || typeof md.getUserMedia !== 'function' || md.__waCaptureProbe) return;
+			var original = md.getUserMedia;
+
+			function describeConstraints(c) {
+				try {
+					if (c === undefined || c === null) return 'none';
+					if (typeof c !== 'object') return String(c);
+					var parts = [];
+					['audio', 'video'].forEach(function(k) {
+						var v = c[k];
+						if (v === undefined) return;
+						if (v === true || v === false || typeof v === 'string') {
+							parts.push(k + '=' + String(v));
+							return;
+						}
+						if (typeof v !== 'object') { parts.push(k + '=?'); return; }
+						var inner = [];
+						Object.keys(v).forEach(function(f) {
+							inner.push(f + ':' + String(v[f]));
+						});
+						parts.push(k + '={' + inner.join(',') + '}');
+					});
+					return parts.join(' ') || 'empty';
+				} catch (e) {
+					return 'unreadable';
+				}
+			}
+			function describeStream(stream) {
+				try {
+					if (!stream || typeof stream.getAudioTracks !== 'function') return 'no stream';
+					var tracks = stream.getAudioTracks();
+					if (!tracks.length) return 'no audio track';
+					var out = [];
+					for (var i = 0; i < tracks.length; i++) {
+						var s = {};
+						try { s = (tracks[i].getSettings && tracks[i].getSettings()) || {}; } catch (e) {}
+						out.push('ch=' + s.channelCount + ' rate=' + s.sampleRate +
+							' ec=' + s.echoCancellation + ' ns=' + s.noiseSuppression +
+							' agc=' + s.autoGainControl +
+							' device=' + String(tracks[i].label || '?').slice(0, 60));
+					}
+					return out.join(' | ');
+				} catch (e) {
+					return 'unreadable';
+				}
+			}
+
+			md.getUserMedia = function() {
+				var args = arguments;
+				try { waDiag('mic', 'getUserMedia constraints: ' + describeConstraints(args[0])); } catch (e) {}
+				var result = original.apply(md, args);
+				try {
+					if (result && typeof result.then === 'function') {
+						result.then(function(stream) {
+							try { waDiag('mic', 'granted: ' + describeStream(stream)); } catch (e) {}
+						}, function(err) {
+							try { waDiag('mic', 'rejected: ' + String((err && err.name) || err)); } catch (e) {}
+						});
+					}
+				} catch (e) {}
+				return result;
+			};
+			md.__waCaptureProbe = true;
 		});
 
 		// Auto-Start at Login Toggle (Cmd/Ctrl + Shift + S)
