@@ -2750,6 +2750,10 @@ func getInitScript(ua string) string {
 			var bridgeRetryCount = 0;
 			var maxBridgeRetries = 20;
 			var maxAccountsUI = 2;
+			// Bottom-zone tool buttons, rebuilt by renderDock(). Each entry keeps
+			// { el, isActive } so the theme observer can recolor them without a
+			// full dock rebuild (theme flips and privacy/blur toggles land here).
+			var toolButtons = [];
 
 			function hasBridge(name) {
 				return typeof window[name] === 'function';
@@ -2799,9 +2803,12 @@ func getInitScript(ua string) string {
 				style.id = 'wa-account-dock-style';
 				style.textContent =
 					'html.' + dockClass + ' #app { margin-left: 64px !important; width: calc(100% - 64px) !important; }' +
-					'#' + dockId + ' { position: fixed; top: 0; left: 0; bottom: 0; width: 64px; z-index: 2147483000; display: flex; flex-direction: column; align-items: center; padding: 40px 0 16px; box-sizing: border-box; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }' +
-					'#' + dockId + ' .wa-dock-scroll { display: flex; flex-direction: column; align-items: center; gap: 10px; overflow-y: auto; max-height: 100%; padding: 2px; }' +
-					'#' + dockId + ' button { flex: none; }' +
+				'#' + dockId + ' { position: fixed; top: 0; left: 0; bottom: 0; width: 64px; z-index: 2147483000; display: flex; flex-direction: column; align-items: center; padding: 40px 0 16px; box-sizing: border-box; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }' +
+				'#' + dockId + ' .wa-dock-scroll { display: flex; flex-direction: column; align-items: center; gap: 10px; overflow-y: auto; flex: 1 1 auto; min-height: 0; padding: 2px; }' +
+				'#' + dockId + ' button { flex: none; }' +
+				'#' + dockId + ' .wa-dock-divider { width: 30px; height: 1px; flex: none; }' +
+				'#' + dockId + ' .wa-dock-tools { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: none; padding-top: 2px; }' +
+				'#' + dockId + ' .wa-dock-tool { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: 9px; border: 1px solid transparent; background: transparent; cursor: pointer; outline: none; transition: background-color .15s ease, color .15s ease; }' +
 					'#' + dockId + ' button:focus-visible { outline: 2px solid #00a884; outline-offset: 2px; }';
 				(document.head || document.documentElement).appendChild(style);
 			}
@@ -2999,6 +3006,97 @@ func getInitScript(ua string) string {
 				dock.style.borderRight = '1px solid ' + (dark ? 'rgba(134,150,160,.18)' : 'rgba(17,27,33,.10)');
 			}
 
+			// ---- Bottom tool zone (support features, kept out of the account area) ----
+			// Every entry rides on an existing toggle that is already event-driven;
+			// the dock never polls. States are read from the same synchronous getters
+			// the shortcuts use, so the icons stay truthful even when a feature was
+			// flipped via keyboard (Cmd+Shift+P / T) instead of a click.
+			function toolSvg(name) {
+				if (name === 'privacy') {
+					return '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>';
+				}
+				if (name === 'ontop') {
+					return '<svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M15 3l6 6-4.5 1.3-2.7 5.4-2.6-2.6L5 19l-1-1 5.9-6.2-2.6-2.6 5.4-2.7L15 3z"/></svg>';
+				}
+				return '<svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><circle cx="12" cy="7.5" r="4"/><path d="M4 20.5c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5V21H4v-.5z"/></svg>';
+			}
+
+			function toolDefs() {
+				var defs = [];
+				if (typeof window.togglePrivacyMode === 'function' && typeof window.isPrivacyModeActive === 'function') {
+					defs.push({
+						id: 'privacy',
+						name: 'Privacy Mode',
+						hint: '\u2318/Ctrl+Shift+P',
+						click: function() { window.togglePrivacyMode(); },
+						isActive: function() { return !!window.isPrivacyModeActive(); }
+					});
+				}
+				if (typeof window.toggleAlwaysOnTop === 'function' && typeof window.isAlwaysOnTopActive === 'function') {
+					defs.push({
+						id: 'ontop',
+						name: 'Always on Top',
+						hint: '\u2318/Ctrl+Shift+T',
+						// Native state, no DOM class change: recolor from the toggle result.
+						click: function() { window.toggleAlwaysOnTop().then(updateToolTheme).catch(function() {}); },
+						isActive: function() { return !!window.isAlwaysOnTopActive(); }
+					});
+				}
+				if (typeof window.setBlurAvatars === 'function' && typeof window.isBlurAvatars === 'function') {
+					defs.push({
+						id: 'blur',
+						name: 'Blur Profile Photos',
+						hint: '',
+						click: function() { window.setBlurAvatars(!window.isBlurAvatars()); },
+						isActive: function() { return !!window.isBlurAvatars(); }
+					});
+				}
+				return defs;
+			}
+
+			function updateToolTheme() {
+				var dark = isDarkMode();
+				var muted = dark ? '#8696a0' : '#667781';
+				toolButtons.forEach(function(tool) {
+					if (!tool.el) return;
+					var active = false;
+					try { active = tool.isActive(); } catch (err) {}
+					tool.el.style.color = active ? '#ffffff' : muted;
+					tool.el.style.background = active ? '#00a884' : 'transparent';
+					tool.el.style.borderColor = active ? '#00a884' : 'transparent';
+				});
+				var divider = document.getElementById(dockId + '-divider');
+				if (divider) divider.style.background = dark ? 'rgba(134,150,160,.30)' : 'rgba(17,27,33,.14)';
+			}
+
+			function renderToolZone(dock) {
+				var defs = toolDefs();
+				if (!defs.length) {
+					toolButtons = [];
+					return;
+				}
+				var divider = document.createElement('div');
+				divider.className = 'wa-dock-divider';
+				divider.id = dockId + '-divider';
+				dock.appendChild(divider);
+
+				var wrap = document.createElement('div');
+				wrap.className = 'wa-dock-tools';
+				wrap.setAttribute('aria-label', 'Quick tools');
+				toolButtons = defs.map(function(def) {
+					var btn = document.createElement('button');
+					btn.type = 'button';
+					btn.className = 'wa-dock-tool';
+					btn.title = def.name + (def.hint ? '\n' + def.hint : '');
+					btn.setAttribute('aria-label', def.name);
+					btn.innerHTML = toolSvg(def.id);
+					btn.onclick = function() { def.click(); };
+					wrap.appendChild(btn);
+					return { el: btn, isActive: def.isActive };
+				});
+				dock.appendChild(wrap);
+			}
+
 			function renderDock(accounts) {
 				window.__waAccountRailAccounts = accounts;
 				ensureDockStyle();
@@ -3057,6 +3155,12 @@ func getInitScript(ua string) string {
 				add.style.cssText = 'margin-top:10px;width:38px;height:38px;padding:0;border-radius:50%;border:1px dashed ' + addColor + ';background:transparent;color:' + addColor + ';font-size:22px;font-weight:300;line-height:1;cursor:' + (add.disabled ? 'default' : 'pointer') + ';outline:none;opacity:' + (atMax ? '.45' : '1') + ';flex:none;';
 				add.onclick = createAccount;
 				dock.appendChild(add);
+
+				// Partitioned dock: accounts (+ add) above, support-feature icons
+				// pinned below the divider. The scroll area flexes, so tools stay
+				// visible even with both account chips on screen.
+				renderToolZone(dock);
+				updateToolTheme();
 			}
 
 			function loadAccounts() {
@@ -3095,6 +3199,9 @@ func getInitScript(ua string) string {
 			var dockThemeObserver = new MutationObserver(function() {
 				var dock = document.getElementById(dockId);
 				if (dock) applyDockTheme(dock);
+				// Privacy/blur toggles land as <html> class flips, so this observer
+				// is also the cheapest truthful refresh for tool active states.
+				updateToolTheme();
 			});
 			// documentElement is null when the script is injected before the DOM
 			// exists (WebView2's AddScriptToExecuteOnDocumentCreated), and observe()
