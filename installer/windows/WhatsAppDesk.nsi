@@ -62,7 +62,7 @@ RequestExecutionLevel user
 !define MUI_HEADERIMAGE_RIGHT
 
 !define MUI_WELCOMEPAGE_TITLE "${APPNAME} ${VERSION}"
-!define MUI_WELCOMEPAGE_TEXT "Welcome to ${APPNAME} ${VERSION}.$\r$\n$\r$\nNew in ${VERSION}: link a second WhatsApp account with fully isolated profiles, switchable from the account dock, plus a quick-tool dock for Privacy Mode, Always on Top, and Blur Profile Photos.$\r$\n$\r$\n${APPNAME} is an independent desktop shell for WhatsApp Web. It creates Start Menu and desktop shortcuts and can be removed at any time from Apps & features.$\r$\n$\r$\nClick Next to continue."
+!define MUI_WELCOMEPAGE_TEXT "Welcome to ${APPNAME} ${VERSION}.$\r$\n$\r$\n${APPNAME} is a fast, ultra-lightweight, privacy-respecting desktop client for WhatsApp Web. It creates Start Menu and desktop shortcuts and can be removed at any time from Apps & features.$\r$\n$\r$\nClick Next to continue."
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
@@ -70,7 +70,7 @@ RequestExecutionLevel user
 
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${APPEXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "Run ${APPNAME} now"
-!define MUI_FINISHPAGE_TEXT "${APPNAME} ${VERSION} has been installed.$\r$\n$\r$\nLog in by scanning the QR code. A second WhatsApp account can be added any time from the account dock on the left edge."
+!define MUI_FINISHPAGE_TEXT "${APPNAME} ${VERSION} has been installed.$\r$\n$\r$\nLog in by scanning the QR code."
 !define MUI_FINISHPAGE_LINK "Open the project page"
 !define MUI_FINISHPAGE_LINK_LOCATION "${APPURL}"
 !insertmacro MUI_PAGE_FINISH

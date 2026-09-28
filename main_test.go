@@ -1318,56 +1318,6 @@ func TestSpreadsheetPreviewSanitizesCellMarkup(t *testing.T) {
 	}
 }
 
-// Windows has no in-place browser swap, so a switch always tears the session down
-// and runApp's loop is what builds the next engine. That only works if the loop
-// comes back round: the flag must be declared per iteration and the loop itself
-// unconditional, with an ordinary close the only thing that returns. Written as
-// "for !switchRequested" the test is inverted, so every switch falls straight out
-// of runApp and the app closes instead of switching accounts.
-func TestWindowsAccountSwitchRebuildsInsteadOfExiting(t *testing.T) {
-	source, err := os.ReadFile("app_windows.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := string(source)
-
-	start := strings.Index(content, "func runApp() {")
-	if start < 0 {
-		t.Fatal("runApp implementation not found in app_windows.go")
-	}
-	body := content[start:]
-
-	if strings.Contains(body, "for !switchRequested") {
-		t.Error("runApp must not gate its loop on switchRequested: that exits the app on every switch instead of rebuilding the engine")
-	}
-
-	loopIdx := strings.Index(body, "for {")
-	flagIdx := strings.Index(body, "switchRequested := false")
-	if loopIdx < 0 || flagIdx < 0 {
-		t.Fatal("runApp is missing its rebuild loop or the per-iteration switch flag")
-	}
-	if flagIdx < loopIdx {
-		t.Error("switchRequested must be declared inside the loop, so every iteration starts with a clean request flag")
-	}
-
-	if !strings.Contains(body, "if !switchRequested {") {
-		t.Error("runApp must leave the loop only when no switch was requested")
-	}
-
-	// The teardown has to finish before the next engine is built. The vendored
-	// webview only posts WM_CLOSE, and the WM_DESTROY that follows posts a
-	// WM_QUIT for this thread; left queued, the next Run() returns on it at once
-	// and the rebuilt window flashes and disappears.
-	destroyIdx := strings.Index(body, "w.Destroy()")
-	drainIdx := strings.Index(body, "drainThreadQueue()")
-	if destroyIdx < 0 || drainIdx < 0 {
-		t.Fatal("the Windows switch teardown is missing w.Destroy() or the queue drain")
-	}
-	if drainIdx < destroyIdx {
-		t.Error("the message queue must be drained after w.Destroy(), before the next engine is built")
-	}
-}
-
 func TestChromeEmulationAndClientHints(t *testing.T) {
 	testUA := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
 	script := getInitScript(testUA)

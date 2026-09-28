@@ -35,7 +35,6 @@ Get the latest stable release for your operating system (updated automatically):
 
 ## Key Features
 
-* **Two Accounts, One Window:** Link a second WhatsApp account with a fully isolated browser profile and switch from the account dock (`Ctrl+Shift+1/2` / `Cmd+Shift+1/2`) — with per-account unread badges and a seamless, blink-free swap. One live engine at a time keeps memory low.
 * **Ultra-Lightweight Engine:** Built directly on native OS webviews (WebKit on macOS, WebView2 on Windows). Minimal RAM and battery footprint compared to Chromium/Electron apps.
 * **Zero Telemetry & Private by Design:** Communicates straight with `https://web.whatsapp.com`. No analytics tracking, no user profiling, and no proxy or relay servers.
 * **Instant Privacy Mode & Auto-Lock:** Quickly redact chat previews, sender names, and media thumbnails with a shortcut (`Ctrl+Shift+P` / `Cmd+Shift+P`) or automatic lock on idle.

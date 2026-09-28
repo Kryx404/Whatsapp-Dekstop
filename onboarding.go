@@ -48,26 +48,8 @@ func getOnboardingScript() string {
 					'<span style="width:10px;height:10px;border-radius:50%;background:#00a884;flex:none;"></span>' +
 					'<h1 id="wa-onboarding-title" style="font-size:18px;line-height:1.3;font-weight:600;letter-spacing:-.15px;margin:0;">WhatsApp Desk 1.6.2 is ready</h1>' +
 					'</div>' +
-					'<p style="font-size:13px;line-height:1.55;color:' + muted + ';margin:0;max-width:58ch;">Log in or scan QR code as usual. This release adds a second WhatsApp account with fully isolated profiles and the quick-tool dock on the left edge, and hardens drag &amp; drop, document previews, and account switching.</p>';
+					'<p style="font-size:13px;line-height:1.55;color:' + muted + ';margin:0;max-width:58ch;">Log in or scan QR code as usual. Privacy-respecting desktop client with built-in document previews, instant privacy mode, and zero telemetry.</p>';
 				panel.appendChild(intro);
-
-				// What's-new rows: the two headline features of this release,
-				// visually set apart from the standing shortcut list by the
-				// accent edge, so returning users can spot the changes fast.
-				var news = document.createElement('div');
-				news.style.cssText = 'border:1px solid ' + border + ';border-left:3px solid #00a884;border-radius:6px;padding:4px 12px;margin-bottom:14px;';
-				var mod = (typeof __WA_GOOS !== 'undefined' && __WA_GOOS === 'darwin') ? 'Cmd' : 'Ctrl';
-				var newsItems = [
-					['Two accounts, one window', mod + ' + Shift + 1 / 2'],
-					['Quick tools on the account dock', 'Privacy · Top · Blur']
-				];
-				newsItems.forEach(function(item, index) {
-					var row = document.createElement('div');
-					row.style.cssText = 'min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:16px;' + (index ? 'border-top:1px solid ' + border + ';' : '');
-					row.innerHTML = '<span style="font-size:12.5px;line-height:1.4;">' + item[0] + '</span>' + shortcut(item[1]);
-					news.appendChild(row);
-				});
-				panel.appendChild(news);
 
 				var rows = document.createElement('div');
 				rows.style.cssText = 'border-top:1px solid ' + border + ';border-bottom:1px solid ' + border + ';margin-bottom:20px;';
