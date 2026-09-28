@@ -85,6 +85,22 @@ func getInitScript(ua string) string {
 			} catch (e) {}
 		}
 
+		var origConsoleError = console.error;
+		console.error = function() {
+			var args = Array.prototype.slice.call(arguments).map(function(a) {
+				return (a && a.stack) ? a.stack : String(a);
+			}).join(' ');
+			waDiag('console-err', args);
+			origConsoleError.apply(console, arguments);
+		};
+		window.addEventListener('error', function(e) {
+			waDiag('window-err', (e.message || 'unknown') + ' @ ' + (e.filename || '?') + ':' + (e.lineno || '?'));
+		}, true);
+		window.addEventListener('unhandledrejection', function(e) {
+			var r = e.reason;
+			waDiag('unhandled-reject', String((r && (r.stack || r.message)) || r));
+		});
+
 		// --- Recoverable-failure log --------------------------------------
 		// Non-fatal problems are recorded instead of thrown so one degraded
 		// feature never disables the rest of the injected script. Bounded, and
@@ -231,6 +247,23 @@ func getInitScript(ua string) string {
 				if (this.webkitExitFullscreen) return this.webkitExitFullscreen();
 				return Promise.resolve();
 			};
+		}
+		if (window.performance && !window.performance.memory) {
+			window.performance.memory = {
+				jsHeapSizeLimit: 2172649472,
+				totalJSHeapSize: 50331648,
+				usedJSHeapSize: 31457280
+			};
+		}
+		if (typeof navigator.deviceMemory === 'undefined') {
+			try {
+				Object.defineProperty(navigator, 'deviceMemory', {
+					get: () => 8,
+					configurable: true
+				});
+			} catch (e) {
+				try { navigator.deviceMemory = 8; } catch (e2) {}
+			}
 		}
 
 		// Remove Safari-specific markers completely
