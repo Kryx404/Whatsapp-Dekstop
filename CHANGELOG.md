@@ -19,6 +19,38 @@ Version numbers are declared in exactly one place — `appVersion` in `updater.g
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-09-28
+
+> Windows Close & Account-Switch Fix
+
+The 1.6.1 binaries were first published with a Windows bug that made the app impossible to close,
+and the corrected build was re-published under the same 1.6.1 version number — which the updater
+never offers to installs already on 1.6.1. 1.6.2 carries the same fixes under a new number so they
+finally reach every 1.6.1 install.
+
+### Fixed
+
+- Windows: the app closes normally again, and switching accounts no longer quits it. The session
+  loop in `runApp` was `for !switchRequested` with the flag declared outside the loop, which put the
+  two paths exactly the wrong way round: an ordinary close left the flag false, so the loop went
+  round again and rebuilt the engine, reopening the window instead of exiting (#61, #64); a switch
+  set the flag true, so the loop fell out and `runApp` returned, ending the process instead of
+  rebuilding on the new account (#62). The flag is now declared per iteration and only an ordinary
+  close leaves the loop, and the thread's message queue is drained after `Destroy()` so the
+  `WM_QUIT` posted by the destroyed window's `WM_DESTROY` cannot reach the next session's `Run()`.
+- Privacy Mode no longer makes scrolling heavy. The sidebar refresh asked every
+  ancestor of the pointer target whether it was a sidebar control, and on a long
+  chat list that read the whole list's text and re-queried its subtree on every
+  pointer event; the refresh could also be dropped mid-flight, which risked leaving
+  a chat row readable. The check is now bounded to the row it belongs to, and the
+  refresh is deferred and rescheduled rather than dropped.
+- Document previews scroll as smoothly as the built-in viewer. The preview overlay
+  is a full-viewport fixed element, and blurring its backdrop forces the compositor
+  to re-render the page behind the modal on every scrolled frame; the four scroll
+  surfaces inside the card also repainted their whole overlay because nothing
+  contained them. The overlay now uses a flat dim, every scroll surface is a
+  containment boundary, and the card is layer-promoted.
+
 ## [1.6.1] - 2026-09-27
 
 > Crash Fixes, Reliable Drag & Drop, and Document Preview Recovery
@@ -51,25 +83,6 @@ Version numbers are declared in exactly one place — `appVersion` in `updater.g
   drop silently did nothing.
 - A second drop arriving while the first was still being staged no longer overwrites
   it.
-- Privacy Mode no longer makes scrolling heavy. The sidebar refresh asked every
-  ancestor of the pointer target whether it was a sidebar control, and on a long
-  chat list that read the whole list's text and re-queried its subtree on every
-  pointer event; the refresh could also be dropped mid-flight, which risked leaving
-  a chat row readable. The check is now bounded to the row it belongs to, and the
-  refresh is deferred and rescheduled rather than dropped.
-- Document previews scroll as smoothly as the built-in viewer. The preview overlay
-  is a full-viewport fixed element, and blurring its backdrop forces the compositor
-  to re-render the page behind the modal on every scrolled frame; the four scroll
-  surfaces inside the card also repainted their whole overlay because nothing
-  contained them. The overlay now uses a flat dim, every scroll surface is a
-  containment boundary, and the card is layer-promoted.
-- Windows: switching accounts no longer closes the app. `runApp` looped while a
-  switch had *not* been requested, and the Windows switch handler set that flag
-  unconditionally, so every switch fell out of the loop and ended the process
-  instead of rebuilding the engine on the new account. The loop is now
-  unconditional, and the thread's message queue is drained after `Destroy()` so the
-  `WM_QUIT` posted by the destroyed window's `WM_DESTROY` cannot reach the next
-  session's `Run()`.
 
 ### Added
 
