@@ -21,10 +21,6 @@ func getInitScript(ua string) string {
 		clientPlatform = "Windows"
 		clientPlatformVersion = "10.0.0"
 		clientArch = "x86"
-	} else if runtime.GOOS == "linux" {
-		clientPlatform = "Linux"
-		clientPlatformVersion = "6.8.0"
-		clientArch = "x86"
 	}
 
 	chromeMajor := "150"

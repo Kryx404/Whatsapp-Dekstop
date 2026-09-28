@@ -230,7 +230,7 @@ func TestSpreadsheetPreviewSupportsLegacyXLS(t *testing.T) {
 // Every platform must expose the lazy SheetJS bridge; a missing binding would
 // silently disable spreadsheet preview on that OS alone.
 func TestAllPlatformsExposeXLSXBridge(t *testing.T) {
-	for _, file := range []string{"app_darwin.go", "app_windows.go", "app_linux.go"} {
+	for _, file := range []string{"app_darwin.go", "app_windows.go"} {
 		source, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
@@ -690,7 +690,6 @@ func TestAllPlatformsApplySavedThemeToNativeWindow(t *testing.T) {
 	}{
 		{"app_darwin.go", "setNativeWindowTheme"},
 		{"app_windows.go", "applyNativeThemeWin"},
-		{"app_linux.go", "applyNativeThemeLinux"},
 	}
 	for _, tc := range cases {
 		source, err := os.ReadFile(tc.file)
@@ -994,25 +993,8 @@ func TestMediaObserverScansOnlyAddedSubtrees(t *testing.T) {
 	}
 }
 
-func TestLinuxDoesNotForceContinuousCompositingOrPeriodicGC(t *testing.T) {
-	source, err := os.ReadFile("app_linux.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := string(source)
-	if strings.Contains(content, `Setenv("WEBKIT_FORCE_COMPOSITING_MODE", "1")`) {
-		t.Fatal("Linux must let WebKitGTK choose compositing mode")
-	}
-	if strings.Contains(content, "time.NewTicker(60 * time.Second)") {
-		t.Fatal("Linux must not force full Go GC every minute")
-	}
-	if !strings.Contains(content, `_ = w.Bind("releaseMemoryNative"`) {
-		t.Fatal("Linux must release Go memory when the shared visibility lifecycle requests it")
-	}
-}
-
 func TestDesktopWindowStateUsesResizeEventsNotPolling(t *testing.T) {
-	for _, file := range []string{"app_darwin.go", "app_windows.go", "app_linux.go"} {
+	for _, file := range []string{"app_darwin.go", "app_windows.go"} {
 		source, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
@@ -1407,4 +1389,3 @@ func TestChromeEmulationAndClientHints(t *testing.T) {
 		}
 	}
 }
-

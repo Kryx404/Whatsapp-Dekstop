@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/vianziro/Whatsapp-Dekstop/releases/latest"><img src="https://img.shields.io/github/v/release/vianziro/Whatsapp-Dekstop?label=release&color=18c77b&style=flat-square" alt="Latest Release"></a>
-  <a href="https://github.com/vianziro/Whatsapp-Dekstop/releases"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-0b1713?style=flat-square" alt="Platforms"></a>
+  <a href="https://github.com/vianziro/Whatsapp-Dekstop/releases"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-0b1713?style=flat-square" alt="Platforms"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-18c77b?style=flat-square" alt="License: MIT"></a>
   <a href="https://go.dev/"><img src="https://img.shields.io/badge/go-1.26+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Version"></a>
   <a href="https://github.com/vianziro/Whatsapp-Dekstop/releases/latest"><img src="https://img.shields.io/badge/architecture-Universal%20%7C%20x64-555?style=flat-square" alt="Architecture"></a>
@@ -13,7 +13,7 @@
 
 <p align="center">
   <strong>WhatsApp Desk</strong> is a fast, ultra-lightweight, privacy-respecting desktop client for <a href="https://web.whatsapp.com">WhatsApp Web</a>.<br>
-  Built with native operating system web engines — <strong>WebKit</strong> on macOS, <strong>WebView2</strong> on Windows, and <strong>WebKitGTK</strong> on Linux.<br>
+  Built with native operating system web engines — <strong>WebKit</strong> on macOS and <strong>WebView2</strong> on Windows.<br>
   <em>Zero Electron bloat • Zero telemetry • Zero message relay servers • Complete local privacy.</em>
 </p>
 
@@ -27,21 +27,16 @@ Get the latest stable release for your operating system (updated automatically):
 | :--- | :--- | :--- | :--- |
 | **macOS** | [**Universal DMG**](https://github.com/vianziro/Whatsapp-Dekstop/releases/latest/download/WhatsApp-Desk-macOS-Universal.dmg) | [Universal ZIP](https://github.com/vianziro/Whatsapp-Dekstop/releases/latest/download/WhatsApp-Desk-macOS-Universal.zip) | macOS 11.0+ (Apple Silicon & Intel) |
 | **Windows 10 / 11** | [**Setup Wizard (.exe)**](https://github.com/vianziro/Whatsapp-Dekstop/releases/latest/download/WhatsApp-Desk-Windows-x64-Setup.exe) | [Portable EXE](https://github.com/vianziro/Whatsapp-Dekstop/releases/latest/download/WhatsAppDesk.exe) | Windows 10/11 x64 (WebView2 runtime) |
-| **Linux (x64)** — via [v1.5.9.9](https://github.com/vianziro/Whatsapp-Dekstop/releases/tag/v1.5.9.9) | [**DEB (WebKitGTK 4.0, Ubuntu 22.04)**](https://github.com/vianziro/Whatsapp-Dekstop/releases/download/v1.5.9.9/WhatsApp-Desk-Linux-amd64.deb) · [**DEB (WebKitGTK 4.1, Ubuntu 24.04+)**](https://github.com/vianziro/Whatsapp-Dekstop/releases/download/v1.5.9.9/WhatsApp-Desk-Linux-amd64-webkit4.1.deb) | [tar.gz 4.0](https://github.com/vianziro/Whatsapp-Dekstop/releases/download/v1.5.9.9/WhatsApp-Desk-Linux-x64.tar.gz) · [tar.gz 4.1](https://github.com/vianziro/Whatsapp-Dekstop/releases/download/v1.5.9.9/WhatsApp-Desk-Linux-x64-webkit4.1.tar.gz) | GTK 3 & WebKitGTK 4.0 / 4.1 |
 
 > [!TIP]
 > Download links point automatically to the latest release assets. You can also view all past versions and architectures on the [Releases](https://github.com/vianziro/Whatsapp-Dekstop/releases) page.
->
-> **Linux note:** the 1.6.2 pipeline builds macOS and Windows only. Linux packages keep
-> riding with [v1.5.9.9](https://github.com/vianziro/Whatsapp-Dekstop/releases/tag/v1.5.9.9)
-> until the next Linux build; their fixed links above always resolve.
 
 ---
 
 ## Key Features
 
 * **Two Accounts, One Window:** Link a second WhatsApp account with a fully isolated browser profile and switch from the account dock (`Ctrl+Shift+1/2` / `Cmd+Shift+1/2`) — with per-account unread badges and a seamless, blink-free swap. One live engine at a time keeps memory low.
-* **Ultra-Lightweight Engine:** Built directly on native OS webviews (WebKit on macOS, WebView2 on Windows, WebKitGTK on Linux). Minimal RAM and battery footprint compared to Chromium/Electron apps.
+* **Ultra-Lightweight Engine:** Built directly on native OS webviews (WebKit on macOS, WebView2 on Windows). Minimal RAM and battery footprint compared to Chromium/Electron apps.
 * **Zero Telemetry & Private by Design:** Communicates straight with `https://web.whatsapp.com`. No analytics tracking, no user profiling, and no proxy or relay servers.
 * **Instant Privacy Mode & Auto-Lock:** Quickly redact chat previews, sender names, and media thumbnails with a shortcut (`Ctrl+Shift+P` / `Cmd+Shift+P`) or automatic lock on idle.
 * **Built-in Document & Office Preview:** Instant in-app previews for PDFs, Word docs, Excel spreadsheets, PowerPoint slides, and text attachments without cluttering your drive with duplicate files.
@@ -109,16 +104,6 @@ sudo apt-get install -f
 sudo dnf install ./WhatsApp-Desk-Fedora-x64.rpm
 ```
 
-> [!NOTE]
-> **Ubuntu 24.04 (Noble), Linux Mint 22.x, Fedora 39+** ship WebKitGTK 4.1 only — use the
-> `-webkit4.1` assets: `WhatsApp-Desk-Linux-amd64-webkit4.1.deb` (or the portable
-> `WhatsApp-Desk-Linux-x64-webkit4.1.tar.gz` on Fedora/RHEL, where DEB does not apply).
-> Older distros (Ubuntu 22.04, Debian 12) use the default 4.0 assets. Verify a package
-> before installing: `dpkg-deb -f <deb> Depends` (expect `libwebkit2gtk-4.1-0` for the 4.1
-> variant) and `ldd dist_linux/whatsapp-desk | grep webkit` for the portable archive.
-> RPM packages and arm64 Linux builds are not currently published; build them with
-> `bash build_linux.sh` (see [Building & Releasing](#building--releasing)).
-
 ### Verifying Release Integrity
 
 Every release ships with a signed [SHA256SUMS](https://github.com/vianziro/Whatsapp-Dekstop/releases/latest/download/SHA256SUMS) checksum list:
@@ -126,9 +111,6 @@ Every release ships with a signed [SHA256SUMS](https://github.com/vianziro/Whats
 ```bash
 # macOS
 shasum -a 256 -c SHA256SUMS
-
-# Linux
-sha256sum -c SHA256SUMS
 
 # Windows PowerShell
 (Get-FileHash .\WhatsApp-Desk-Windows-x64-Setup.exe -Algorithm SHA256).Hash.ToLower()
@@ -146,7 +128,6 @@ Default profile locations:
 
 - macOS: `~/Library/Application Support/WhatsAppDesk/UserData/`
 - Windows: `%APPDATA%\WhatsAppDesk\UserData\`
-- Linux: `~/.config/whatsapp-desk/`
 
 ---
 
@@ -178,8 +159,7 @@ It builds the macOS universal DMG/ZIP and the Windows portable EXE, ZIP, and
 Setup wizard, generates `SHA256SUMS` from the published asset list, and finally
 re-downloads an artifact to verify its digest.
 
-Individual targets are also available: `build_mac.sh`, `build_windows_installer.sh`,
-and `build_linux.sh` (Linux packaging is currently maintained separately).
+Individual targets are also available: `build_mac.sh` and `build_windows_installer.sh`.
 
 The `Release` workflow in `.github/workflows/build.yml` is manual-only for this
 reason; its job definitions are kept for use on a host with working runners.

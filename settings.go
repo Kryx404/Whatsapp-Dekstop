@@ -489,8 +489,6 @@ func openFolderInFileManager(folderPath string) error {
 		return exec.Command("open", folderPath).Start()
 	} else if runtime.GOOS == "windows" {
 		return exec.Command("explorer.exe", folderPath).Start()
-	} else if runtime.GOOS == "linux" {
-		return exec.Command("xdg-open", folderPath).Start()
 	}
 	return nil
 }
@@ -512,8 +510,6 @@ func previewDocument(filename, dataURI string) (string, error) {
 		// rundll32 is a GUI-subsystem binary, so unlike "cmd /c start" it never
 		// flashes a console window when opening the previewed file.
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", targetPath)
-	default:
-		cmd = exec.Command("xdg-open", targetPath)
 	}
 	if cmd != nil {
 		_ = cmd.Start()

@@ -10,8 +10,7 @@
 #      CHANGELOG.md, so a release can never claim a version its binary does not
 #      report, or ship with placeholder notes.
 #   2. Builds macOS (universal DMG + ZIP) and Windows (portable EXE, ZIP, and the
-#      NSIS Setup wizard). Linux is intentionally not part of the current
-#      release scope; see build_linux.sh for the standalone path.
+#      NSIS Setup wizard).
 #   3. Stages the asset names the README links to, then creates the GitHub
 #      release (or updates it when the tag already exists).
 #   4. Generates SHA256SUMS from the published asset list and uploads it, so the
