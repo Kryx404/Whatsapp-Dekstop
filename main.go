@@ -13,7 +13,10 @@ const (
 func getInitScript(ua string) string {
 	clientPlatform := "macOS"
 	clientPlatformVersion := "15.0.0"
-	clientArch := "arm"
+	clientArch := "x86"
+	if runtime.GOARCH == "arm64" {
+		clientArch = "arm"
+	}
 	if runtime.GOOS == "windows" {
 		clientPlatform = "Windows"
 		clientPlatformVersion = "10.0.0"
@@ -22,6 +25,22 @@ func getInitScript(ua string) string {
 		clientPlatform = "Linux"
 		clientPlatformVersion = "6.8.0"
 		clientArch = "x86"
+	}
+
+	chromeMajor := "150"
+	chromeFull := "150.0.0.0"
+	if idx := strings.Index(ua, "Chrome/"); idx != -1 {
+		rest := ua[idx+len("Chrome/"):]
+		if end := strings.IndexByte(rest, ' '); end != -1 {
+			chromeFull = rest[:end]
+		} else {
+			chromeFull = rest
+		}
+		if dot := strings.IndexByte(chromeFull, '.'); dot != -1 {
+			chromeMajor = chromeFull[:dot]
+		} else {
+			chromeMajor = chromeFull
+		}
 	}
 
 	script := `
@@ -103,26 +122,80 @@ func getInitScript(ua string) string {
 	try {
 		// UserAgent and platform override to Google Chrome
 		Object.defineProperty(navigator, 'userAgent', {
-			get: () => '` + ua + `'
+			get: () => '` + ua + `',
+			configurable: true
 		});
 		Object.defineProperty(navigator, 'appVersion', {
-			get: () => '` + ua + `'
+			get: () => '` + ua + `',
+			configurable: true
 		});
 		Object.defineProperty(navigator, 'vendor', {
-			get: () => 'Google Inc.'
+			get: () => 'Google Inc.',
+			configurable: true
+		});
+		Object.defineProperty(navigator, 'vendorSub', {
+			get: () => '',
+			configurable: true
+		});
+		Object.defineProperty(navigator, 'productSub', {
+			get: () => '20030107',
+			configurable: true
 		});
 
 		// Emulate window.chrome
 		if (!window.chrome) {
-			window.chrome = {
-				app: { isInstalled: false },
-				runtime: {}
+			window.chrome = {};
+		}
+		if (!window.chrome.app) {
+			window.chrome.app = {
+				isInstalled: false,
+				InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+				RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
+				getDetails: function() { return null; },
+				getIsInstalled: function() { return false; },
+				installState: function() { return 'not_installed'; },
+				runningState: function() { return 'cannot_run'; }
+			};
+		}
+		if (!window.chrome.runtime) {
+			window.chrome.runtime = {};
+		}
+		if (!window.chrome.csi) {
+			window.chrome.csi = function() {
+				return { startE: Date.now(), onloadT: Date.now(), pageT: 1, tran: 15 };
+			};
+		}
+		if (!window.chrome.loadTimes) {
+			window.chrome.loadTimes = function() {
+				var nowSec = Date.now() / 1000;
+				return {
+					requestTime: nowSec,
+					startLoadTime: nowSec,
+					commitLoadTime: nowSec,
+					finishDocumentLoadTime: 0,
+					finishLoadTime: 0,
+					firstPaintTime: 0,
+					firstPaintAfterLoadTime: 0,
+					navigationType: 'Other',
+					wasFetchedViaSpdy: false,
+					wasNpnNegotiated: false,
+					npnNegotiatedProtocol: '',
+					wasAlternateProtocolAvailable: false,
+					connectionInfo: 'unknown'
+				};
 			};
 		}
 
-		// Remove Safari-specific markers
+		// Remove Safari-specific markers completely
 		try {
 			delete window.safari;
+		} catch (e) {}
+		try {
+			Object.defineProperty(window, 'safari', {
+				get: () => undefined,
+				set: () => {},
+				configurable: true
+			});
 		} catch (e) {}
 
 		// NOTE (v1.5.9): a <meta> Content-Security-Policy allowlist was tried in
@@ -149,38 +222,50 @@ func getInitScript(ua string) string {
 
 		// Emulate navigator.userAgentData (User-Agent Client Hints)
 		if (!navigator.userAgentData) {
-			Object.defineProperty(navigator, 'userAgentData', {
-				get: () => ({
-					brands: [
-						{ brand: 'Not(A:Brand', version: '99' },
-						{ brand: 'Google Chrome', version: '133' },
-						{ brand: 'Chromium', version: '133' }
-					],
-					mobile: false,
-					platform: '` + clientPlatform + `',
-					getHighEntropyValues: function() {
-						return Promise.resolve({
-							architecture: '` + clientArch + `',
-							bitness: '64',
-							brands: [
-								{ brand: 'Not(A:Brand', version: '99' },
-								{ brand: 'Google Chrome', version: '133' },
-								{ brand: 'Chromium', version: '133' }
-							],
-							fullVersionList: [
-								{ brand: 'Not(A:Brand', version: '99.0.0.0' },
-								{ brand: 'Google Chrome', version: '133.0.0.0' },
-								{ brand: 'Chromium', version: '133.0.0.0' }
-							],
-							mobile: false,
-							model: '',
-							platform: '` + clientPlatform + `',
-							platformVersion: '` + clientPlatformVersion + `',
-							uaFullVersion: '133.0.0.0'
-						});
-					}
-				})
-			});
+			var uaBrands = [
+				{ brand: 'Not;A=Brand', version: '8' },
+				{ brand: 'Chromium', version: '` + chromeMajor + `' },
+				{ brand: 'Google Chrome', version: '` + chromeMajor + `' }
+			];
+			var uaFullBrands = [
+				{ brand: 'Not;A=Brand', version: '8.0.0.0' },
+				{ brand: 'Chromium', version: '` + chromeFull + `' },
+				{ brand: 'Google Chrome', version: '` + chromeFull + `' }
+			];
+			var uaDataObj = {
+				brands: uaBrands,
+				mobile: false,
+				platform: '` + clientPlatform + `',
+				toJSON: function() {
+					return {
+						brands: uaBrands,
+						mobile: false,
+						platform: '` + clientPlatform + `'
+					};
+				},
+				getHighEntropyValues: function(hints) {
+					return Promise.resolve({
+						architecture: '` + clientArch + `',
+						bitness: '64',
+						brands: uaBrands,
+						fullVersionList: uaFullBrands,
+						mobile: false,
+						model: '',
+						platform: '` + clientPlatform + `',
+						platformVersion: '` + clientPlatformVersion + `',
+						uaFullVersion: '` + chromeFull + `',
+						wow64: false
+					});
+				}
+			};
+			try {
+				Object.defineProperty(navigator, 'userAgentData', {
+					get: () => uaDataObj,
+					configurable: true
+				});
+			} catch (e) {
+				try { navigator.userAgentData = uaDataObj; } catch (e2) {}
+			}
 		}
 
 		// Keep WKWebView's real PDF capability untouched. Advertising Chrome's

@@ -1385,3 +1385,26 @@ func TestWindowsAccountSwitchRebuildsInsteadOfExiting(t *testing.T) {
 		t.Error("the message queue must be drained after w.Destroy(), before the next engine is built")
 	}
 }
+
+func TestChromeEmulationAndClientHints(t *testing.T) {
+	testUA := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+	script := getInitScript(testUA)
+
+	for _, want := range []string{
+		"Google Inc.",
+		"window.chrome.app",
+		"window.chrome.loadTimes",
+		"window.chrome.csi",
+		"toJSON: function()",
+		"getHighEntropyValues: function(hints)",
+		"'Google Chrome', version: '150'",
+		"'Chromium', version: '150'",
+		"uaFullVersion: '150.0.0.0'",
+		"Object.defineProperty(window, 'safari'",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("script missing Chrome emulation check %q", want)
+		}
+	}
+}
+

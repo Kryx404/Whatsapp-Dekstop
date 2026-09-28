@@ -3825,7 +3825,7 @@ WEBVIEW_API webview_t webview_create(int debug, void *wnd) {
   return w;
 }
 
-WEBVIEW_API int webview_recreate_browser_active(void) {
+WEBVIEW_API __attribute__((used)) int webview_recreate_browser_active(void) {
   if (!g_active_webview) {
     return 0;
   }
