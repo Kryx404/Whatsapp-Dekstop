@@ -2111,30 +2111,65 @@ func getInitScript(ua string) string {
 			].join('\n');
 
 			var activePrivacyHoverRow = null;
+			// Elements the current hovered row had to un-blur inline. Tracked so
+			// clearing touches only what was changed instead of scanning the whole
+			// document for the marker on every row the cursor crosses.
+			var privacyHoverOverrides = [];
+			// Text in a hovered row is un-blurred by the [data-wa-privacy-hover]
+			// CSS rules, so only media and avatar slots need an inline override -
+			// their blur rules are anchored to #side / #pane-side ids, and an
+			// inline !important is the only thing that reliably cancels those.
+			var PRIVACY_HOVER_OVERRIDE_SELECTOR = 'img, image, ._ak8h, [data-wa-privacy-avatar="1"], [data-testid*="avatar" i], [data-testid="default-user"], [data-icon="default-user"], [data-icon="default-group"], [data-icon="community-outline"], svg[viewBox="0 0 49 49"]';
 			var PRIVACY_ARCHIVED_LABEL_RE = /^(Archived|Diarsipkan|Archiviert|Archivio|Archiviati|Archivados?|Archivadas?|Архив|已归档|封存)\b/i;
 			var PRIVACY_ARCHIVED_INFO_RE = /These chats stay archived when new messages are received|To change this experience, go to settings > chats on your phone|Obrolan ini tetap diarsipkan saat pesan baru diterima|Untuk mengubah pengalaman ini.*Pengaturan.*(Chat|Obrolan)/i;
+			// Every chat-list row shape WhatsApp Web has used. Shared so the
+			// per-pointer-event predicates can reject a container in one
+			// selector match instead of scanning its subtree.
+			var PRIVACY_ROW_SELECTOR = '[role="row"], [role="listitem"], [data-testid="cell-frame-container"], div[tabindex="-1"], div._ak8l';
 			function privacyIsArchivedNavigationText(text) {
 				return PRIVACY_ARCHIVED_LABEL_RE.test((text || '').replace(/\s+/g, ' ').trim());
 			}
 			function privacyIsArchivedInfoText(text) {
 				return PRIVACY_ARCHIVED_INFO_RE.test((text || '').replace(/\s+/g, ' ').trim());
 			}
+			// Avatar slots are marked in two steps on purpose. Marking a row writes
+			// attributes that change styles, and the geometry fallback below reads
+			// layout back - so running both inside the row loop forced a full
+			// style+layout flush per row. Probes are queued and run once all the
+			// writes have landed.
+			var privacyGeometryQueue = [];
 			function markPrivacyAvatarTargets(row, avatarSelector) {
 				var avatars = row.querySelectorAll(avatarSelector);
 				for (var a = 0; a < avatars.length; a++) avatars[a].setAttribute('data-wa-privacy-avatar', '1');
 				if (avatars.length) return;
-				// Some profile photos are CSS background images instead of img nodes.
-				// Restrict the fallback to a small square at the row's leading edge;
-				// never select a generic background-image container.
-				var rowRect = row.getBoundingClientRect ? row.getBoundingClientRect() : null;
+				if (privacyGeometryQueue.indexOf(row) === -1) privacyGeometryQueue.push(row);
+			}
+			function flushPrivacyAvatarGeometry() {
+				if (!privacyGeometryQueue.length) return;
+				var queue = privacyGeometryQueue;
+				privacyGeometryQueue = [];
+				for (var q = 0; q < queue.length; q++) probePrivacyAvatarGeometry(queue[q]);
+			}
+			function probePrivacyAvatarGeometry(row) {
+				if (!row || !row.getBoundingClientRect) return;
+				// An earlier pass already located this row's slot, so there is
+				// nothing left to measure.
+				if (row.querySelector('[data-wa-privacy-avatar="1"]')) return;
+				var rowRect = row.getBoundingClientRect();
 				if (!rowRect || rowRect.width <= 0 || rowRect.height <= 0) return;
+				// getComputedStyle is the most expensive read here, so the probe is
+				// bounded per row. A row whose leading edge holds no background-image
+				// slot is simply left unmarked, which is the pre-existing outcome for
+				// exotic layouts too.
+				var probes = 0;
 				var visualCandidates = row.querySelectorAll('div, span, [role="img"]');
-				for (var v = 0; v < visualCandidates.length; v++) {
+				for (var v = 0; v < visualCandidates.length && probes < 40; v++) {
 					var visual = visualCandidates[v];
 					var visualRect = visual.getBoundingClientRect ? visual.getBoundingClientRect() : null;
 					if (!visualRect || visualRect.width < 28 || visualRect.height < 28 || visualRect.width > 96 || visualRect.height > 96) continue;
 					if (Math.abs(visualRect.width - visualRect.height) > 18 || visualRect.left > rowRect.left + 96 || visualRect.top > rowRect.top + 24) continue;
 					var backgroundImage = '';
+					probes++;
 					try { backgroundImage = window.getComputedStyle(visual).backgroundImage || ''; } catch (e) {}
 					if (backgroundImage === '' || backgroundImage === 'none') continue;
 					visual.setAttribute('data-wa-privacy-avatar', '1');
@@ -2143,7 +2178,7 @@ func getInitScript(ua string) string {
 				// WhatsApp renders initials as text inside a circular slot instead of an img.
 				// The same geometry guard prevents the fallback from marking the row.
 				var initials = row.querySelectorAll('span, div');
-				for (var i = 0; i < initials.length; i++) {
+				for (var i = 0; i < initials.length && i < 40; i++) {
 					var text = (initials[i].textContent || '').trim();
 					if (!/^[A-Za-z0-9]{1,3}$/.test(text)) continue;
 					var candidate = initials[i];
@@ -2199,41 +2234,56 @@ func getInitScript(ua string) string {
 						control = control.parentElement;
 					}
 				}
+				flushPrivacyAvatarGeometry();
 			}
 			function forceArchivedControlVisible() {
+				// Resolve every target first, then write. The resolved step reads
+				// layout (getBoundingClientRect) and the write step invalidates it,
+				// so interleaving the two flushed style+layout once per candidate.
 				var labels = document.querySelectorAll('[data-wa-privacy-archive-control="1"]');
+				var targets = [];
 				for (var i = 0; i < labels.length; i++) {
 					if (!privacyIsArchivedNavigationText(labels[i].textContent)) continue;
 					var control = labels[i];
 					for (var depth = 0; control && depth < 10; depth++, control = control.parentElement) {
 						var rect = control.getBoundingClientRect ? control.getBoundingClientRect() : null;
-						var isRow = control.matches && control.matches('[role="row"], [role="listitem"], [data-testid="cell-frame-container"], div[tabindex="-1"], div._ak8l');
+						var isRow = control.matches && control.matches(PRIVACY_ROW_SELECTOR);
 						if (!isRow && (!rect || rect.height < 40 || rect.width < 200)) continue;
-						control.removeAttribute('data-wa-privacy-chat-row');
-						control.setAttribute('data-wa-privacy-archive-control', '1');
-						control.style.setProperty('filter', 'none', 'important');
-						var children = control.querySelectorAll('*');
-						for (var c = 0; c < children.length; c++) children[c].style.setProperty('filter', 'none', 'important');
+						targets.push({ node: control, deep: true });
 						break;
 					}
 				}
 				var archiveIcons = document.querySelectorAll('[data-icon*="archive" i], [data-testid*="archive" i], [aria-label*="archiv" i], [aria-label*="diarsip" i]');
 				for (var a = 0; a < archiveIcons.length; a++) {
 					var icon = archiveIcons[a];
-					var iconRow = icon.closest && icon.closest('[role="row"], [role="listitem"], [data-testid="cell-frame-container"], div[tabindex="-1"], div._ak8l');
+					var iconRow = icon.closest && icon.closest(PRIVACY_ROW_SELECTOR);
 					if (iconRow && privacyIsArchivedNavigationText(iconRow.textContent)) {
-						iconRow.removeAttribute('data-wa-privacy-chat-row');
-						iconRow.setAttribute('data-wa-privacy-archive-control', '1');
-						iconRow.style.setProperty('filter', 'none', 'important');
+						targets.push({ node: iconRow, deep: false });
 					}
 					if (icon.matches && (icon.matches('[data-icon*="archive" i]') || icon.matches('[data-testid*="archive" i]') || icon.matches('[aria-label*="archiv" i]') || icon.matches('[aria-label*="diarsip" i]'))) {
-						icon.style.setProperty('filter', 'none', 'important');
-						icon.querySelectorAll('*').forEach(function(child) { child.style.setProperty('filter', 'none', 'important'); });
+						targets.push({ node: icon, deep: true });
 					}
+				}
+				for (var t = 0; t < targets.length; t++) {
+					var node = targets[t].node;
+					node.removeAttribute('data-wa-privacy-chat-row');
+					node.setAttribute('data-wa-privacy-archive-control', '1');
+					node.style.setProperty('filter', 'none', 'important');
+					if (!targets[t].deep) continue;
+					var children = node.querySelectorAll('*');
+					for (var c = 0; c < children.length; c++) children[c].style.setProperty('filter', 'none', 'important');
 				}
 			}
 			function isPrivacySidebarControl(node) {
 				if (!node || !node.matches) return false;
+				// Already classified by a previous pass: cheapest possible answer.
+				if (node.getAttribute && node.getAttribute('data-wa-privacy-archive-control') === '1') return true;
+				// Only a row-scale node can be the Archived navigation entry, and
+				// this predicate is asked of every ancestor on every pointer event.
+				// Asking it of a container such as #pane-side meant reading the whole
+				// chat list's text and running a subtree query per ancestor per
+				// event - which is what made the list stutter under the cursor.
+				if (!node.matches(PRIVACY_ROW_SELECTOR)) return false;
 				var text = (node.textContent || '').trim();
 				return privacyIsArchivedNavigationText(text) || !!node.querySelector('[data-icon*="archive" i], [data-testid*="archive" i], [aria-label*="archiv" i], [aria-label*="diarsip" i]');
 			}
@@ -2275,16 +2325,18 @@ func getInitScript(ua string) string {
 			}
 			function clearPrivacyHoverRow() {
 				if (activePrivacyHoverRow) activePrivacyHoverRow.removeAttribute('data-wa-privacy-hover');
-				// Clear stale reveal markers globally. DOM recycling can remove a row
-				// without dispatching a matching mouseout, leaving other avatars open.
-				var revealed = document.querySelectorAll('[data-wa-privacy-reveal="1"]');
-				for (var i = 0; i < revealed.length; i++) {
-					revealed[i].removeAttribute('data-wa-privacy-reveal');
-					if (!isPrivacyArchivedInfo(revealed[i]) && revealed[i].getAttribute('data-wa-privacy-filter-overridden') === '1') {
-						revealed[i].style.removeProperty('filter');
-						revealed[i].removeAttribute('data-wa-privacy-filter-overridden');
+				// Only the elements this row overrode are restored. A detached row
+				// (WhatsApp recycled it without a matching mouseout) is harmless:
+				// dropping its inline filter cannot affect what is on screen.
+				for (var i = 0; i < privacyHoverOverrides.length; i++) {
+					var el = privacyHoverOverrides[i];
+					el.removeAttribute('data-wa-privacy-reveal');
+					if (!isPrivacyArchivedInfo(el)) {
+						el.style.removeProperty('filter');
+						el.removeAttribute('data-wa-privacy-filter-overridden');
 					}
 				}
+				privacyHoverOverrides = [];
 				activePrivacyHoverRow = null;
 			}
 			function markPrivacyHoverRow(row) {
@@ -2292,12 +2344,13 @@ func getInitScript(ua string) string {
 				clearPrivacyHoverRow();
 				activePrivacyHoverRow = row;
 				row.setAttribute('data-wa-privacy-hover', '1');
-				var revealTargets = row.querySelectorAll('span, ._ak8q, ._ak8k, img, image, button, [role="button"], [data-icon], svg, [data-wa-privacy-avatar="1"], [data-testid="default-user"], [data-icon="default-user"], [data-icon="default-group"]');
+				var revealTargets = row.querySelectorAll(PRIVACY_HOVER_OVERRIDE_SELECTOR);
 				for (var i = 0; i < revealTargets.length; i++) {
 					if (isPrivacyArchivedInfo(revealTargets[i])) continue;
 					revealTargets[i].setAttribute('data-wa-privacy-reveal', '1');
 					revealTargets[i].style.setProperty('filter', 'none', 'important');
 					revealTargets[i].setAttribute('data-wa-privacy-filter-overridden', '1');
+					privacyHoverOverrides.push(revealTargets[i]);
 				}
 			}
 			function updatePrivacyHoverFromTarget(target) {
@@ -2385,6 +2438,7 @@ func getInitScript(ua string) string {
 						}
 					}
 				}
+				flushPrivacyAvatarGeometry();
 			}
 			function scheduleArchivedPrivacyMark() {
 				if (!isPrivacyActive) return;
@@ -2399,7 +2453,20 @@ func getInitScript(ua string) string {
 				if (target || isPrivacySidebarControl(e.target)) scheduleArchivedPrivacyMark();
 			}, true);
 			document.addEventListener('mouseover', function(e) { updatePrivacyHoverFromTarget(e.target); }, true);
-			document.addEventListener('mousemove', function(e) { updatePrivacyHoverFromTarget(e.target); }, true);
+			// Deliberately no mousemove handler. It fires on every pixel of travel,
+			// and each call walked the ancestor chain asking whether each level was
+			// the Archived entry. A passive scroll listener covers the one case it
+			// was really needed for - the list moving under a stationary cursor -
+			// at one attribute removal per frame instead of per pixel.
+			var privacyScrollFrame = 0;
+			document.addEventListener('scroll', function() {
+				if (!isPrivacyActive || !activePrivacyHoverRow || privacyScrollFrame) return;
+				if (!window.requestAnimationFrame) { clearPrivacyHoverRow(); return; }
+				privacyScrollFrame = window.requestAnimationFrame(function() {
+					privacyScrollFrame = 0;
+					clearPrivacyHoverRow();
+				});
+			}, { passive: true, capture: true });
 			document.addEventListener('mouseout', function(e) {
 				var row = privacyChatRowFromTarget(e.target);
 				if (row && (!e.relatedTarget || !row.contains(e.relatedTarget))) clearPrivacyHoverRow();
@@ -2410,6 +2477,15 @@ func getInitScript(ua string) string {
 				privacySidebarRefreshTimer = setTimeout(function() {
 					privacySidebarRefreshTimer = null;
 					if (!isPrivacyActive) return;
+					// WhatsApp's virtualized chat list mutates continuously while the
+					// user scrolls, so this ran a full re-scan several times a second
+					// during the gesture. Reschedule instead of dropping: the markers
+					// must still land the moment the gesture ends, or a chat row could
+					// stay readable.
+					if (shouldPauseBackgroundWork()) {
+						if (!document.hidden) schedulePrivacySidebarRefresh();
+						return;
+					}
 					markPrivacyChatRows();
 					markArchivedPrivacyViews();
 					forceArchivedControlVisible();
@@ -2569,7 +2645,12 @@ func getInitScript(ua string) string {
 			window.addEventListener('focus', function() { resetIdleTimer(true); });
 			document.addEventListener('visibilitychange', function() {
 				if (document.hidden) { if (autoLockEnabled) lockForIdle(); }
-				else resetIdleTimer(true);
+				else {
+					resetIdleTimer(true);
+					// A refresh dropped while the window was hidden must not wait for
+					// the next interval tick to put the markers back.
+					if (isPrivacyActive) schedulePrivacySidebarRefresh();
+				}
 			});
 			resetIdleTimer(true);
 

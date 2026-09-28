@@ -358,7 +358,7 @@ func TestPrivacyModeUsesVisualBlurWithChatListHoverUnblur(t *testing.T) {
 		"data-wa-privacy-reveal",
 		"function privacyChatRowFromTarget(target)",
 		"function isPrivacyArchivedInfo(target)",
-		"if (!isPrivacyArchivedInfo(revealed[i])",
+		"if (!isPrivacyArchivedInfo(el))",
 		"if (isPrivacyArchivedInfo(revealTargets[i])) continue",
 		"function markPrivacyHoverRow(row)",
 		"function updatePrivacyHoverFromTarget(target)",
@@ -366,7 +366,7 @@ func TestPrivacyModeUsesVisualBlurWithChatListHoverUnblur(t *testing.T) {
 		"data-wa-privacy-avatar",
 		"function markPrivacyAvatarTargets(row, avatarSelector)",
 		"WhatsApp renders initials as text inside a circular slot",
-		"Clear stale reveal markers globally",
+		"var privacyHoverOverrides = [];",
 		"function markPrivacyChatRows()",
 		"function markArchivedPrivacyViews()",
 		"function scheduleArchivedPrivacyMark()",
@@ -391,8 +391,23 @@ func TestPrivacyModeUsesVisualBlurWithChatListHoverUnblur(t *testing.T) {
 	if !strings.Contains(script, "[data-wa-privacy-chat-row=\"1\"] span,") {
 		t.Fatal("chat-list timestamps must be included in the marked chat-row blur layer")
 	}
-	if !strings.Contains(script, "row.querySelectorAll('span, ._ak8q") {
-		t.Fatal("hover reveal must include timestamp spans")
+	// The hover reveal is attribute-only. The CSS rule un-blurs every span in the
+	// hovered row - timestamps included - so the inline override only has to cover
+	// the media and avatar slots whose blur rules are anchored to #side /
+	// #pane-side ids and therefore win on specificity.
+	if !strings.Contains(script, ".privacy-mode [data-wa-privacy-hover=\"1\"] span,") {
+		t.Fatal("hover reveal must cover every span in the hovered row, timestamps included")
+	}
+	if !strings.Contains(script, "var PRIVACY_HOVER_OVERRIDE_SELECTOR = 'img, image, ._ak8h") {
+		t.Fatal("hover reveal must inline-override media and avatar slots, which the id-anchored blur rules would otherwise keep blurred")
+	}
+	// Regression guard for the scroll stutter: clearing the reveal used to scan
+	// the whole document for the marker on every row the cursor crossed.
+	if strings.Contains(script, "document.querySelectorAll('[data-wa-privacy-reveal=\"1\"]')") {
+		t.Fatal("clearing the hover reveal must not scan the whole document")
+	}
+	if !strings.Contains(script, "privacyHoverOverrides.push(revealTargets[i])") {
+		t.Fatal("hover reveal must track what it overrode so clearing stays bounded")
 	}
 }
 
@@ -471,9 +486,22 @@ func TestPrivacyModeCoversArchivedChatsAndAllAvatarVariants(t *testing.T) {
 		"labelParent.clientHeight >= 40",
 		"function forceArchivedControlVisible()",
 		"control.getBoundingClientRect",
-		"control.style.setProperty('filter', 'none', 'important')",
+		// Both the resolved archived control and the archive icon are queued as
+		// targets and written in one pass; interleaving the layout read with the
+		// style write flushed style+layout once per candidate.
+		"targets.push({ node: control, deep: true })",
+		"targets.push({ node: icon, deep: true })",
+		"node.style.setProperty('filter', 'none', 'important')",
 		"var archiveIcons = document.querySelectorAll('[data-icon*=\"archive\" i]",
-		"icon.style.setProperty('filter', 'none', 'important')",
+		// Scroll-cost guards. The Archived-entry predicate is asked of every
+		// ancestor on every pointer event, so it must reject a container with one
+		// selector match instead of reading its subtree. The chat-list refresh must
+		// be deferred during a scroll gesture but still land afterwards, and the
+		// avatar geometry probe must run outside the marker-writing loop.
+		"if (!node.matches(PRIVACY_ROW_SELECTOR)) return false;",
+		"if (!document.hidden) schedulePrivacySidebarRefresh();",
+		"flushPrivacyAvatarGeometry()",
+		"var privacyGeometryQueue = [];",
 		"new MutationObserver(function()",
 		"observePrivacySidebar()",
 		"function schedulePrivacySidebarRefresh()",
