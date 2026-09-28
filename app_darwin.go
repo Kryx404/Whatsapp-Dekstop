@@ -323,9 +323,10 @@ static void setWKWebViewUserAgentAndMedia(void* nsWindowPtr, const char* uaStr) 
             @try {
                 WKPreferences* prefs = [wv.configuration preferences];
                 [prefs setValue:@YES forKey:@"webGLEnabled"];
-                // developerExtrasEnabled is intentionally left off in production: it keeps
-                // Web Inspector instrumentation resident in the WebContent process for the
-                // lifetime of the app, adding avoidable CPU/RAM overhead with no user benefit.
+                [prefs setValue:@YES forKey:@"developerExtrasEnabled"];
+                if ([wv respondsToSelector:@selector(setInspectable:)]) {
+                    [wv setValue:@YES forKey:@"inspectable"];
+                }
 
                 // Disable pageCache & backForwardCache to prevent WebKit from retaining old page trees
                 [prefs setValue:@NO forKey:@"backForwardCacheEnabled"];

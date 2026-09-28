@@ -153,9 +153,6 @@ func getInitScript(ua string) string {
 				runningState: function() { return 'cannot_run'; }
 			};
 		}
-		if (!window.chrome.runtime) {
-			window.chrome.runtime = {};
-		}
 		if (!window.chrome.csi) {
 			window.chrome.csi = function() {
 				return { startE: Date.now(), onloadT: Date.now(), pageT: 1, tran: 15 };
@@ -179,6 +176,60 @@ func getInitScript(ua string) string {
 					wasAlternateProtocolAvailable: false,
 					connectionInfo: 'unknown'
 				};
+			};
+		}
+
+		// WebKit polyfills for APIs Chrome expects during initial sync
+		if (typeof window.requestIdleCallback === 'undefined') {
+			window.requestIdleCallback = function(cb, options) {
+				var start = Date.now();
+				return setTimeout(function() {
+					cb({
+						didTimeout: false,
+						timeRemaining: function() { return Math.max(0, 50 - (Date.now() - start)); }
+					});
+				}, 1);
+			};
+			window.cancelIdleCallback = function(id) { clearTimeout(id); };
+		}
+		if (typeof StorageManager !== 'undefined' && StorageManager.prototype && !StorageManager.prototype.estimate) {
+			StorageManager.prototype.estimate = function() {
+				return Promise.resolve({
+					quota: 50 * 1024 * 1024 * 1024,
+					usage: 50 * 1024 * 1024,
+					usageDetails: { indexedDB: 50 * 1024 * 1024 }
+				});
+			};
+		}
+		if (!navigator.permissions) {
+			var permObj = {
+				query: function(desc) {
+					var state = 'granted';
+					if (desc && desc.name === 'notifications') {
+						state = window.Notification && window.Notification.permission ? window.Notification.permission : 'granted';
+					}
+					return Promise.resolve({
+						state: state,
+						onchange: null,
+						addEventListener: function() {},
+						removeEventListener: function() {},
+						dispatchEvent: function() { return true; }
+					});
+				}
+			};
+			try {
+				Object.defineProperty(navigator, 'permissions', {
+					get: () => permObj,
+					configurable: true
+				});
+			} catch (e) {
+				try { navigator.permissions = permObj; } catch (e2) {}
+			}
+		}
+		if (typeof Document !== 'undefined' && Document.prototype && !Document.prototype.exitFullscreen) {
+			Document.prototype.exitFullscreen = function() {
+				if (this.webkitExitFullscreen) return this.webkitExitFullscreen();
+				return Promise.resolve();
 			};
 		}
 
@@ -311,25 +362,45 @@ func getInitScript(ua string) string {
 				}
 			}
 
-			window.Notification = function(title, options) {
+			function WAClassNotification(title, options) {
 				options = options || {};
 				dispatchNativeNotification(title, options);
-				this.title = title;
-				this.body = options.body || '';
+				this.title = String(title || '');
+				this.body = String(options.body || '');
+				this.tag = String(options.tag || '');
+				this.icon = String(options.icon || '');
+				this.data = options.data || null;
 				this.onclick = null;
 				this.onclose = null;
 				this.onerror = null;
 				this.onshow = null;
-			};
-			window.Notification.permission = 'granted';
-			window.Notification.maxActions = 2;
-			window.Notification.requestPermission = function(callback) {
+			}
+			WAClassNotification.permission = 'granted';
+			WAClassNotification.maxActions = 2;
+			WAClassNotification.requestPermission = function(callback) {
 				var p = Promise.resolve('granted');
-				if (typeof callback === 'function') {
-					callback('granted');
-				}
+				if (typeof callback === 'function') callback('granted');
 				return p;
 			};
+			WAClassNotification.prototype.close = function() {
+				if (typeof this.onclose === 'function') {
+					try { this.onclose(new Event('close')); } catch (e) {}
+				}
+			};
+			WAClassNotification.prototype.addEventListener = function(type, listener) {
+				if (type === 'click') this.onclick = listener;
+				if (type === 'close') this.onclose = listener;
+				if (type === 'error') this.onerror = listener;
+				if (type === 'show') this.onshow = listener;
+			};
+			WAClassNotification.prototype.removeEventListener = function(type, listener) {
+				if (type === 'click' && this.onclick === listener) this.onclick = null;
+				if (type === 'close' && this.onclose === listener) this.onclose = null;
+				if (type === 'error' && this.onerror === listener) this.onerror = null;
+				if (type === 'show' && this.onshow === listener) this.onshow = null;
+			};
+			WAClassNotification.prototype.dispatchEvent = function() { return true; };
+			window.Notification = WAClassNotification;
 
 			try {
 				if (typeof ServiceWorkerRegistration !== 'undefined' && ServiceWorkerRegistration.prototype) {
@@ -337,6 +408,11 @@ func getInitScript(ua string) string {
 						dispatchNativeNotification(title, options);
 						return Promise.resolve();
 					};
+					if (!ServiceWorkerRegistration.prototype.getNotifications) {
+						ServiceWorkerRegistration.prototype.getNotifications = function() {
+							return Promise.resolve([]);
+						};
+					}
 				}
 			} catch (e) {}
 		});
