@@ -431,6 +431,182 @@ async function checkCaptureDiagnostics() {
   return failures;
 }
 
+// Privacy Mode scroll cost (reported on macOS: "ketika pada waktu mode blur
+// diaktifkan dia agak lola scroll2 ke chat atau navigasi"). The blurring itself
+// is CSS, so the cost is the injected JS that maintains the markers.
+//
+// The Archived-entry predicate used to answer "is this node the Archived
+// navigation row?" by reading the node's textContent and running a subtree
+// query. It is asked of every ancestor on every pointer event, and the nodes the
+// cursor actually rests on while scrolling - the filter tabs, the Archived
+// entry - sit inside the container that holds every chat row. So a single mouse
+// move walked the whole chat list.
+//
+// This measures how many elements each DOM read had to touch, and fails when a
+// pointer event reaches past one row.
+function privacyHarnessDom(rowCount, withAvatars) {
+  const rows = [];
+  for (let i = 0; i < rowCount; i++) {
+    rows.push(
+      '<div role="row" data-id="r' + i + '">' +
+      (withAvatars ? '<img src="a.png" alt="">' : '') +
+      '<span>Contact ' + i + '</span><span>preview text</span>' +
+      '<span>09:0' + (i % 10) + '</span><span data-icon="status-check"></span>' +
+      '</div>'
+    );
+  }
+  return '<!doctype html><html><body><div id="app"><div id="side">' +
+    '<div id="list-container">' +
+    '<div id="filters"><button>All</button><button>Unread</button></div>' +
+    '<div id="archived-entry"><span>Archived</span></div>' +
+    rows.join('') +
+    '</div></div>' +
+    '<div id="main"><div data-testid="msg-container"><span>hello</span></div></div>' +
+    '</div></body></html>';
+}
+
+async function checkPrivacyPointerCost() {
+  const failures = [];
+  const dom = new JSDOM(privacyHarnessDom(60, true), {
+    runScripts: 'outside-only',
+    pretendToBeVisual: true,
+    url: 'https://web.whatsapp.com/',
+    virtualConsole: new VirtualConsole(),
+  });
+  const { window } = dom;
+  for (const n of BRIDGES) window[n] = () => Promise.resolve('');
+  patchLayout(window);
+  window.eval(script);
+  await nextFrame(window);
+
+  if (typeof window.togglePrivacyMode !== 'function') {
+    return ['the privacy module did not install, so its cost cannot be measured'];
+  }
+
+  // Instrumentation: record how many elements every DOM read walked. The count
+  // is the point - a read against the chat-list container is what made the list
+  // stutter, and it is invisible in a simple call count.
+  const sizes = [];
+  const subtreeSize = (n) => {
+    try { return n.getElementsByTagName ? n.getElementsByTagName('*').length : 0; } catch (e) { return 0; }
+  };
+  const nodeProto = window.Node.prototype;
+  const tc = Object.getOwnPropertyDescriptor(nodeProto, 'textContent');
+  if (tc && tc.get) {
+    Object.defineProperty(nodeProto, 'textContent', {
+      configurable: true,
+      get() { sizes.push(subtreeSize(this)); return tc.get.call(this); },
+      set: tc.set,
+    });
+  } else {
+    failures.push('could not instrument textContent, so the scan size is unmeasured');
+  }
+  let queryCalls = 0;
+  for (const method of ['querySelector', 'querySelectorAll']) {
+    const orig = window.Element.prototype[method];
+    window.Element.prototype[method] = function() {
+      queryCalls++;
+      sizes.push(subtreeSize(this));
+      return orig.apply(this, arguments);
+    };
+  }
+
+  window.togglePrivacyMode();
+  await nextFrame(window);
+
+  sizes.length = 0;
+  queryCalls = 0;
+  const doc = window.document;
+  const filters = doc.getElementById('filters');
+  const targets = [
+    filters,
+    filters.firstChild,
+    doc.getElementById('archived-entry'),
+    doc.querySelectorAll('[role="row"]')[3],
+  ];
+  for (let i = 0; i < 40; i++) {
+    const t = targets[i % targets.length];
+    t.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, cancelable: true }));
+    t.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+  }
+  await new Promise((r) => setTimeout(r, 60));
+
+  const worst = sizes.length ? Math.max.apply(null, sizes) : 0;
+  if (worst > 30) {
+    failures.push('one pointer event walked ' + worst + ' elements: the Archived-entry test is scanning a container instead of a row');
+  }
+  if (queryCalls > 200) {
+    failures.push('40 pointer events issued ' + queryCalls + ' DOM queries (expected fewer than 200)');
+  }
+  return failures;
+}
+
+// The chat list is virtualized, so scrolling it emits a continuous stream of
+// childList mutations. Each one used to schedule a full re-scan 100ms later,
+// which is why the stutter followed the scroll gesture. The refresh must now be
+// deferred while the gesture is in flight and still land afterwards - dropping
+// it would leave a chat row readable, which is worse than the lag.
+async function checkPrivacyScrollDeferral() {
+  const failures = [];
+  // No avatars, so every refresh has to run the geometry probe. That probe is
+  // the refresh's signature and makes it observable.
+  const dom = new JSDOM(privacyHarnessDom(40, false), {
+    runScripts: 'outside-only',
+    pretendToBeVisual: true,
+    url: 'https://web.whatsapp.com/',
+    virtualConsole: new VirtualConsole(),
+  });
+  const { window } = dom;
+  for (const n of BRIDGES) window[n] = () => Promise.resolve('');
+  patchLayout(window);
+
+  // Count only layout reads scoped to a chat row. Other modules (the settings
+  // fallback mount, for one) read layout on their own timers, and counting those
+  // would measure the wrong thing entirely.
+  let rowLayoutReads = 0;
+  const origRect = window.Element.prototype.getBoundingClientRect;
+  window.Element.prototype.getBoundingClientRect = function() {
+    try {
+      if (this.closest && this.closest('[role="row"]')) rowLayoutReads++;
+    } catch (e) {}
+    return origRect.apply(this, arguments);
+  };
+
+  window.eval(script);
+  await nextFrame(window);
+  if (typeof window.togglePrivacyMode !== 'function') {
+    return ['the privacy module did not install, so its refresh cannot be observed'];
+  }
+
+  window.togglePrivacyMode();
+  await new Promise((r) => setTimeout(r, 250));
+
+  const container = window.document.getElementById('list-container');
+  // Start a scroll gesture: this is what arms the shared busy window.
+  window.document.dispatchEvent(new window.Event('scroll', { bubbles: false }));
+  rowLayoutReads = 0;
+
+  const extra = window.document.createElement('div');
+  extra.setAttribute('role', 'row');
+  extra.setAttribute('data-id', 'late');
+  extra.innerHTML = '<span>New</span><span>message</span>';
+  container.appendChild(extra);
+
+  await new Promise((r) => setTimeout(r, 150));
+  if (rowLayoutReads > 0) {
+    failures.push('the chat-list refresh ran during the scroll gesture (' + rowLayoutReads + ' row layout reads)');
+  }
+
+  await new Promise((r) => setTimeout(r, 600));
+  if (rowLayoutReads === 0) {
+    failures.push('the refresh was dropped instead of deferred: the new row was never measured or marked');
+  }
+  if (!extra.hasAttribute('data-wa-privacy-chat-row') && !extra.getAttribute('data-wa-privacy-archive-control')) {
+    failures.push('the row added during the gesture is still unmarked, so it would stay readable');
+  }
+  return failures;
+}
+
 async function main() {
   let failures = 0;
   for (const [label, transform, envMutate, , head] of cases) {
@@ -490,11 +666,29 @@ async function main() {
     console.log(`RED    ${'capture probe'.padEnd(22)} ${reason}`);
   }
 
+  const pointerFailures = await checkPrivacyPointerCost();
+  if (pointerFailures.length === 0) {
+    console.log(`GREEN  ${'privacy pointer cost'.padEnd(22)} a pointer event never reads past one chat row`);
+  }
+  for (const reason of pointerFailures) {
+    failures++;
+    console.log(`RED    ${'privacy pointer cost'.padEnd(22)} ${reason}`);
+  }
+
+  const deferralFailures = await checkPrivacyScrollDeferral();
+  if (deferralFailures.length === 0) {
+    console.log(`GREEN  ${'privacy scroll deferral'.padEnd(22)} refresh deferred during the gesture, applied after it`);
+  }
+  for (const reason of deferralFailures) {
+    failures++;
+    console.log(`RED    ${'privacy scroll deferral'.padEnd(22)} ${reason}`);
+  }
+
   if (failures) {
-    console.log(`\nFAIL: ${failures} harness invariant(s) violated: Settings reachability, spreadsheet sanitizing, drag & drop, document preview looping, or the capture probe.`);
+    console.log(`\nFAIL: ${failures} harness invariant(s) violated: Settings reachability, spreadsheet sanitizing, drag & drop, document preview looping, the capture probe, or Privacy Mode cost.`);
     process.exit(1);
   }
-  console.log('\nPASS: Settings stays reachable under injected failures, the spreadsheet sanitizer neutralizes cell markup, a dropped file reaches the composer, the document preview cannot loop, and the capture probe is invisible.');
+  console.log('\nPASS: Settings stays reachable under injected failures, the spreadsheet sanitizer neutralizes cell markup, a dropped file reaches the composer, the document preview cannot loop, the capture probe is invisible, and Privacy Mode stays off the scroll path.');
   process.exit(0);
 }
 
