@@ -339,22 +339,14 @@ static void setWKWebViewUserAgentAndMedia(void* nsWindowPtr, const char* uaStr) 
     }
 }
 
-static void loadURLWithChromeHeaders(void* nsWindowPtr, const char* urlStr) {
+static void loadURLNative(void* nsWindowPtr, const char* urlStr) {
     @autoreleasepool {
         NSWindow* win = (__bridge NSWindow*)nsWindowPtr;
         NSView* contentView = [win contentView];
         WKWebView* wv = [contentView isKindOfClass:[WKWebView class]] ? (WKWebView*)contentView : findWKWebView(contentView);
         if (wv) {
             NSURL* url = [NSURL URLWithString:[NSString stringWithUTF8String:urlStr]];
-            NSMutableURLRequest* req = [NSMutableURLRequest requestWithURL:url];
-            [req setValue:@"\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\"" forHTTPHeaderField:@"sec-ch-ua"];
-            [req setValue:@"?0" forHTTPHeaderField:@"sec-ch-ua-mobile"];
-            [req setValue:@"\"macOS\"" forHTTPHeaderField:@"sec-ch-ua-platform"];
-            [req setValue:@"document" forHTTPHeaderField:@"sec-fetch-dest"];
-            [req setValue:@"navigate" forHTTPHeaderField:@"sec-fetch-mode"];
-            [req setValue:@"none" forHTTPHeaderField:@"sec-fetch-site"];
-            [req setValue:@"?1" forHTTPHeaderField:@"sec-fetch-user"];
-            [req setValue:@"1" forHTTPHeaderField:@"upgrade-insecure-requests"];
+            NSURLRequest* req = [NSURLRequest requestWithURL:url];
             [wv loadRequest:req];
         }
     }
@@ -1014,12 +1006,12 @@ import (
 	webview "github.com/webview/webview_go"
 )
 
-const userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+const userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15"
 
 func navigateAppURL(w webview.WebView, targetURL string) {
 	curl := C.CString(targetURL)
 	defer C.free(unsafe.Pointer(curl))
-	C.loadURLWithChromeHeaders(w.Window(), curl)
+	C.loadURLNative(w.Window(), curl)
 }
 
 func getUserDataDir() string {

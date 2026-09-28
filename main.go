@@ -132,7 +132,9 @@ func getInitScript(ua string) string {
 		var __WA_GOOS = '` + runtime.GOOS + `';
 
 	try {
-		// UserAgent and platform override to Google Chrome
+		var isChrome = '` + ua + `'.indexOf('Chrome/') !== -1;
+
+		// UserAgent and platform override
 		Object.defineProperty(navigator, 'userAgent', {
 			get: () => '` + ua + `',
 			configurable: true
@@ -142,7 +144,7 @@ func getInitScript(ua string) string {
 			configurable: true
 		});
 		Object.defineProperty(navigator, 'vendor', {
-			get: () => 'Google Inc.',
+			get: () => isChrome ? 'Google Inc.' : 'Apple Computer, Inc.',
 			configurable: true
 		});
 		Object.defineProperty(navigator, 'vendorSub', {
@@ -154,45 +156,57 @@ func getInitScript(ua string) string {
 			configurable: true
 		});
 
-		// Emulate window.chrome
-		if (!window.chrome) {
-			window.chrome = {};
-		}
-		if (!window.chrome.app) {
-			window.chrome.app = {
-				isInstalled: false,
-				InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
-				RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
-				getDetails: function() { return null; },
-				getIsInstalled: function() { return false; },
-				installState: function() { return 'not_installed'; },
-				runningState: function() { return 'cannot_run'; }
-			};
-		}
-		if (!window.chrome.csi) {
-			window.chrome.csi = function() {
-				return { startE: Date.now(), onloadT: Date.now(), pageT: 1, tran: 15 };
-			};
-		}
-		if (!window.chrome.loadTimes) {
-			window.chrome.loadTimes = function() {
-				var nowSec = Date.now() / 1000;
-				return {
-					requestTime: nowSec,
-					startLoadTime: nowSec,
-					commitLoadTime: nowSec,
-					finishDocumentLoadTime: 0,
-					finishLoadTime: 0,
-					firstPaintTime: 0,
-					firstPaintAfterLoadTime: 0,
-					navigationType: 'Other',
-					wasFetchedViaSpdy: false,
-					wasNpnNegotiated: false,
-					npnNegotiatedProtocol: '',
-					wasAlternateProtocolAvailable: false,
-					connectionInfo: 'unknown'
+		if (isChrome) {
+			// Emulate window.chrome
+			if (!window.chrome) {
+				window.chrome = {};
+			}
+			if (!window.chrome.app) {
+				window.chrome.app = {
+					isInstalled: false,
+					InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+					RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
+					getDetails: function() { return null; },
+					getIsInstalled: function() { return false; },
+					installState: function() { return 'not_installed'; },
+					runningState: function() { return 'cannot_run'; }
 				};
-			};
+			}
+			if (!window.chrome.csi) {
+				window.chrome.csi = function() {
+					return { startE: Date.now(), onloadT: Date.now(), pageT: 1, tran: 15 };
+				};
+			}
+			if (!window.chrome.loadTimes) {
+				window.chrome.loadTimes = function() {
+					var nowSec = Date.now() / 1000;
+					return {
+						requestTime: nowSec,
+						startLoadTime: nowSec,
+						commitLoadTime: nowSec,
+						finishDocumentLoadTime: 0,
+						finishLoadTime: 0,
+						firstPaintTime: 0,
+						firstPaintAfterLoadTime: 0,
+						navigationType: 'Other',
+						wasFetchedViaSpdy: false,
+						wasNpnNegotiated: false,
+						npnNegotiatedProtocol: '',
+						wasAlternateProtocolAvailable: false,
+						connectionInfo: 'unknown'
+					};
+				};
+			}
+			try {
+				delete window.safari;
+			} catch (e) {}
+			try {
+				Object.defineProperty(window, 'safari', {
+					get: () => undefined,
+					set: () => {},
+					configurable: true
+				});
+			} catch (e) {}
 		}
 
 		// WebKit polyfills for APIs Chrome expects during initial sync
@@ -266,18 +280,6 @@ func getInitScript(ua string) string {
 			}
 		}
 
-		// Remove Safari-specific markers completely
-		try {
-			delete window.safari;
-		} catch (e) {}
-		try {
-			Object.defineProperty(window, 'safari', {
-				get: () => undefined,
-				set: () => {},
-				configurable: true
-			});
-		} catch (e) {}
-
 		// NOTE (v1.5.9): a <meta> Content-Security-Policy allowlist was tried in
 		// v1.5.8 and REVERTED — WhatsApp Web loads its boot bundles from Meta
 		// CDN hosts outside any maintainable allowlist, so the policy blocked
@@ -300,8 +302,8 @@ func getInitScript(ua string) string {
 			return document.hidden === true || Date.now() < waBackgroundWorkBusyUntil;
 		}
 
-		// Emulate navigator.userAgentData (User-Agent Client Hints)
-		if (!navigator.userAgentData) {
+		// Emulate navigator.userAgentData (User-Agent Client Hints) on Chromium/Windows
+		if (isChrome && !navigator.userAgentData) {
 			var uaBrands = [
 				{ brand: 'Not;A=Brand', version: '8' },
 				{ brand: 'Chromium', version: '` + chromeMajor + `' },
