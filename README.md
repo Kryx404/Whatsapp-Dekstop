@@ -19,7 +19,7 @@
 
 ---
 
-## ⚡ Downloads
+## Downloads
 
 Get the latest stable release for your operating system (updated automatically):
 
@@ -38,35 +38,35 @@ Get the latest stable release for your operating system (updated automatically):
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-* 👥 **Two Accounts, One Window:** Link a second WhatsApp account with a fully isolated browser profile and switch from the account dock (`Ctrl+Shift+1/2` / `Cmd+Shift+1/2`) — with per-account unread badges and a seamless, blink-free swap. One live engine at a time keeps memory low.
-* 🚀 **Ultra-Lightweight Engine:** Built directly on native OS webviews (WebKit on macOS, WebView2 on Windows, WebKitGTK on Linux). Minimal RAM and battery footprint compared to Chromium/Electron apps.
-* 🛡️ **Zero Telemetry & Private by Design:** Communicates straight with `https://web.whatsapp.com`. No analytics tracking, no user profiling, and no proxy or relay servers.
-* 👁️ **Instant Privacy Mode & Auto-Lock:** Quickly redact chat previews, sender names, and media thumbnails with a shortcut (`Ctrl+Shift+P` / `Cmd+Shift+P`) or automatic lock on idle.
-* 📄 **Built-in Document & Office Preview:** Instant in-app previews for PDFs, Word docs, Excel spreadsheets, PowerPoint slides, and text attachments without cluttering your drive with duplicate files.
-* 🛠️ **Windows Setup Wizard:** Per-user installer with branded artwork, Start Menu and desktop shortcuts, and clean uninstallation in Windows Apps & Features.
-* ⚙️ **Unified Settings & Module Guard:** Single accessible settings control (`Ctrl+,` / `Cmd+,`) protected by runtime module isolation (`waRunModule`) against unexpected DOM changes.
-* 🔄 **Built-in Self Updater:** Automatic update notifications with cryptographic `SHA256SUMS` validation before applying updates.
-* 🖥️ **Per-Monitor Window Memory:** Automatically remembers window position and dimension across multi-monitor setups.
+* **Two Accounts, One Window:** Link a second WhatsApp account with a fully isolated browser profile and switch from the account dock (`Ctrl+Shift+1/2` / `Cmd+Shift+1/2`) — with per-account unread badges and a seamless, blink-free swap. One live engine at a time keeps memory low.
+* **Ultra-Lightweight Engine:** Built directly on native OS webviews (WebKit on macOS, WebView2 on Windows, WebKitGTK on Linux). Minimal RAM and battery footprint compared to Chromium/Electron apps.
+* **Zero Telemetry & Private by Design:** Communicates straight with `https://web.whatsapp.com`. No analytics tracking, no user profiling, and no proxy or relay servers.
+* **Instant Privacy Mode & Auto-Lock:** Quickly redact chat previews, sender names, and media thumbnails with a shortcut (`Ctrl+Shift+P` / `Cmd+Shift+P`) or automatic lock on idle.
+* **Built-in Document & Office Preview:** Instant in-app previews for PDFs, Word docs, Excel spreadsheets, PowerPoint slides, and text attachments without cluttering your drive with duplicate files.
+* **Windows Setup Wizard:** Per-user installer with branded artwork, Start Menu and desktop shortcuts, and clean uninstallation in Windows Apps & Features.
+* **Unified Settings & Module Guard:** Single accessible settings control (`Ctrl+,` / `Cmd+,`) protected by runtime module isolation (`waRunModule`) against unexpected DOM changes.
+* **Built-in Self Updater:** Automatic update notifications with cryptographic `SHA256SUMS` validation before applying updates.
+* **Per-Monitor Window Memory:** Automatically remembers window position and dimension across multi-monitor setups.
 
 ---
 
-## 📸 Application Preview
+## Application Preview
 
 <p align="center">
-  <img src="screenshots/app-dark.png" width="900" alt="WhatsApp Desk Main Chat Window">
+  <img src="screenshots/app-window.png" width="900" alt="WhatsApp Desk main chat window">
 </p>
 
 <p align="center">
-  <img src="screenshots/macos-menu.png" width="620" alt="WhatsApp Desk Settings and Customization Panel">
+  <img src="screenshots/macos-menu.png" width="620" alt="WhatsApp Desk settings and customisation panel">
 </p>
 
 *Note: Screenshots use blurred chat content to protect personal information.*
 
 ---
 
-## ⌨️ Keyboard Shortcuts
+## Keyboard Shortcuts
 
 | Feature | macOS | Windows & Linux |
 | :--- | :--- | :--- |
@@ -81,7 +81,7 @@ Get the latest stable release for your operating system (updated automatically):
 
 ---
 
-## 📦 Installation & Setup
+## Installation & Setup
 
 ### macOS (Universal)
 1. Download [**WhatsApp-Desk-macOS-Universal.dmg**](https://github.com/vianziro/Whatsapp-Dekstop/releases/latest/download/WhatsApp-Desk-macOS-Universal.dmg).
@@ -117,7 +117,7 @@ sudo dnf install ./WhatsApp-Desk-Fedora-x64.rpm
 > before installing: `dpkg-deb -f <deb> Depends` (expect `libwebkit2gtk-4.1-0` for the 4.1
 > variant) and `ldd dist_linux/whatsapp-desk | grep webkit` for the portable archive.
 > RPM packages and arm64 Linux builds are not currently published; build them with
-> `bash build_linux.sh` (see [Building & Releasing](#️-building--releasing)).
+> `bash build_linux.sh` (see [Building & Releasing](#building--releasing)).
 
 ### Verifying Release Integrity
 
@@ -150,17 +150,17 @@ Default profile locations:
 
 ---
 
-## 📜 Release Notes & Changelog
+## Release Notes & Changelog
 
 Every version's changes are recorded in **[CHANGELOG.md](CHANGELOG.md)**, which follows the
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. The published release notes are
 generated from it, so the two can never disagree.
 
-👉 **[Read the Changelog](CHANGELOG.md)** · **[View All Releases on GitHub](https://github.com/vianziro/Whatsapp-Dekstop/releases)**
+**[Read the Changelog](CHANGELOG.md)** · **[View All Releases on GitHub](https://github.com/vianziro/Whatsapp-Dekstop/releases)**
 
 ---
 
-## 🛠️ Building & Releasing
+## Building & Releasing
 
 Releases are built and published from a local machine, not from hosted CI. This
 keeps the release path independent of any runner account and makes every
