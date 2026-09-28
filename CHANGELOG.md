@@ -51,6 +51,25 @@ Version numbers are declared in exactly one place — `appVersion` in `updater.g
   drop silently did nothing.
 - A second drop arriving while the first was still being staged no longer overwrites
   it.
+- Privacy Mode no longer makes scrolling heavy. The sidebar refresh asked every
+  ancestor of the pointer target whether it was a sidebar control, and on a long
+  chat list that read the whole list's text and re-queried its subtree on every
+  pointer event; the refresh could also be dropped mid-flight, which risked leaving
+  a chat row readable. The check is now bounded to the row it belongs to, and the
+  refresh is deferred and rescheduled rather than dropped.
+- Document previews scroll as smoothly as the built-in viewer. The preview overlay
+  is a full-viewport fixed element, and blurring its backdrop forces the compositor
+  to re-render the page behind the modal on every scrolled frame; the four scroll
+  surfaces inside the card also repainted their whole overlay because nothing
+  contained them. The overlay now uses a flat dim, every scroll surface is a
+  containment boundary, and the card is layer-promoted.
+- Windows: switching accounts no longer closes the app. `runApp` looped while a
+  switch had *not* been requested, and the Windows switch handler set that flag
+  unconditionally, so every switch fell out of the loop and ended the process
+  instead of rebuilding the engine on the new account. The loop is now
+  unconditional, and the thread's message queue is drained after `Destroy()` so the
+  `WM_QUIT` posted by the destroyed window's `WM_DESTROY` cannot reach the next
+  session's `Run()`.
 
 ### Added
 
