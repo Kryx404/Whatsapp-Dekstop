@@ -365,6 +365,83 @@ async function checkDocPreviewLoopGuard() {
   return failures;
 }
 
+// Document preview render cost. The preview is a full-viewport fixed overlay
+// that the user scrolls inside. Two things made that scroll heavier than the
+// built-in preview: a backdrop-filter on the overlay forces an offscreen
+// compositing pass every frame, and an uncontained scroll container makes each
+// scroll frame repaint the whole overlay. Both are invisible in a screenshot,
+// so they are audited here on the live DOM the script actually builds.
+async function checkDocPreviewRenderCost() {
+  const failures = [];
+  const html =
+    '<!doctype html><html><body><div id="app"><div id="side"></div><div id="main">' +
+    '<div data-testid="msg-container"><div role="row" data-id="m1" title="Catatan.txt">' +
+    '<span id="doc-link">Catatan.txt</span></div></div>' +
+    '</div></div></body></html>';
+  const dom = new JSDOM(html, {
+    runScripts: 'outside-only',
+    pretendToBeVisual: true,
+    url: 'https://web.whatsapp.com/',
+    virtualConsole: new VirtualConsole(),
+  });
+  const { window } = dom;
+  for (const n of BRIDGES) window[n] = () => Promise.resolve('');
+  patchLayout(window);
+  // jsdom implements atob/btoa but not TextDecoder, which the plain-text
+  // preview path uses to decode the attachment bytes.
+  if (!window.TextDecoder && typeof TextDecoder === 'function') window.TextDecoder = TextDecoder;
+  window.URL.createObjectURL = () => 'blob:jsdom/doc';
+  window.URL.revokeObjectURL = () => {};
+
+  window.eval(script);
+  await nextFrame(window);
+
+  const doc = window.document;
+  if (typeof window.showInAppDocModal !== 'function') {
+    return ['showInAppDocModal is not installed, so the preview render cost cannot be audited'];
+  }
+
+  const b64 = window.btoa('baris pertama\nbaris kedua');
+  window.showInAppDocModal('Catatan.txt', '', '', 'data:text/plain;base64,' + b64, '');
+
+  const overlay = doc.getElementById('wa-doc-modal-overlay');
+  if (!overlay) return ['the document preview never opened'];
+
+  // 1. No full-viewport blur. The account-switch veil in this same script
+  //    deliberately avoids backdrop-filter for exactly this reason.
+  const blur = overlay.style.getPropertyValue('backdrop-filter') ||
+    overlay.style.getPropertyValue('-webkit-backdrop-filter');
+  if (blur) {
+    failures.push('the preview overlay still carries a full-viewport backdrop-filter (' + blur +
+      '), which re-blurs the page behind it on every frame');
+  }
+
+  // 2. Every scrolled surface must be a containment boundary.
+  const scrollers = [];
+  for (const el of overlay.querySelectorAll('*')) {
+    const oy = el.style.getPropertyValue('overflow-y') || el.style.getPropertyValue('overflow');
+    if (oy === 'auto' || oy === 'scroll') scrollers.push(el);
+  }
+  if (!scrollers.length) {
+    failures.push('no scroll container was built for the preview, so the containment check proved nothing');
+  }
+  for (const el of scrollers) {
+    const contain = el.style.getPropertyValue('contain');
+    if (contain.indexOf('content') === -1) {
+      failures.push('a preview scroll container is not a containment boundary (contain=' +
+        (contain || 'none') + '), so scrolling it repaints the whole overlay');
+    }
+  }
+
+  // 3. The card owns a compositing layer, so the scroll cannot dirty the page.
+  const card = overlay.firstElementChild;
+  if (!card || card.style.getPropertyValue('transform') === '') {
+    failures.push('the preview card is not promoted to its own layer, so scrolling it repaints the page behind');
+  }
+
+  return failures;
+}
+
 // Capture path (issue #57: "the other person can't hear our voice clearly, it's
 // broken like a robot"). The probe exists to gather evidence, so it must be
 // invisible: same receiver, same arguments, same return value, and a
@@ -657,6 +734,15 @@ async function main() {
     console.log(`RED    ${'document preview loop'.padEnd(22)} ${reason}`);
   }
 
+  const previewCostFailures = await checkDocPreviewRenderCost();
+  if (previewCostFailures.length === 0) {
+    console.log(`GREEN  ${'preview render cost'.padEnd(22)} no full-viewport blur, scrolled surfaces are containment boundaries`);
+  }
+  for (const reason of previewCostFailures) {
+    failures++;
+    console.log(`RED    ${'preview render cost'.padEnd(22)} ${reason}`);
+  }
+
   const micFailures = await checkCaptureDiagnostics();
   if (micFailures.length === 0) {
     console.log(`GREEN  ${'capture probe'.padEnd(22)} constraints and track settings recorded, call path untouched`);
@@ -685,10 +771,10 @@ async function main() {
   }
 
   if (failures) {
-    console.log(`\nFAIL: ${failures} harness invariant(s) violated: Settings reachability, spreadsheet sanitizing, drag & drop, document preview looping, the capture probe, or Privacy Mode cost.`);
+    console.log(`\nFAIL: ${failures} harness invariant(s) violated: Settings reachability, spreadsheet sanitizing, drag & drop, document preview looping, document preview render cost, the capture probe, or Privacy Mode cost.`);
     process.exit(1);
   }
-  console.log('\nPASS: Settings stays reachable under injected failures, the spreadsheet sanitizer neutralizes cell markup, a dropped file reaches the composer, the document preview cannot loop, the capture probe is invisible, and Privacy Mode stays off the scroll path.');
+  console.log('\nPASS: Settings stays reachable under injected failures, the spreadsheet sanitizer neutralizes cell markup, a dropped file reaches the composer, the document preview cannot loop, the preview render stays off the compositing path, the capture probe is invisible, and Privacy Mode stays off the scroll path.');
   process.exit(0);
 }
 

@@ -792,6 +792,52 @@ func TestDarwinPDFUsesNativePDFKitPreview(t *testing.T) {
 	}
 }
 
+// The document preview is a full-viewport fixed overlay that the user scrolls
+// inside. Two costs made that scroll heavier than the built-in preview: a blur
+// across the whole viewport forces an offscreen compositing pass every frame,
+// and an uncontained scroll container repaints the entire overlay as it
+// scrolls. Neither is visible in a screenshot, so pin both here. The jsdom
+// harness asserts the same invariants against the live DOM the script builds.
+func TestDocumentPreviewStaysOffTheCompositingPath(t *testing.T) {
+	script := getInitScript("test-agent")
+	start := strings.Index(script, "function showInAppDocModal")
+	if start < 0 {
+		t.Fatal("showInAppDocModal is missing from the init script")
+	}
+	end := strings.Index(script[start:], "window.showInAppDocModal = showInAppDocModal;")
+	if end < 0 {
+		t.Fatal("showInAppDocModal is never published on window")
+	}
+	modal := script[start : start+end]
+
+	// The literal CSS token must not appear anywhere in the function, comments
+	// included: a guard that a prose mention can trip is a guard that gets
+	// deleted instead of trusted.
+	if strings.Contains(modal, "backdrop-filter") {
+		t.Error("the document preview overlay must not blur the whole viewport: an offscreen compositing pass runs on every frame while the user scrolls inside it")
+	}
+
+	// Every scrolled surface in the preview must be a containment boundary, so
+	// scrolling one cannot invalidate the overlay's paint. Four exist today:
+	// the spreadsheet table, the PDF iframe, the Word page and the text body.
+	if got := strings.Count(modal, "contain:content"); got < 4 {
+		t.Errorf("only %d of the preview's 4 scroll surfaces are containment boundaries; scrolling an uncontained one repaints the whole overlay", got)
+	}
+	if got := strings.Count(modal, "overscroll-behavior:contain"); got < 3 {
+		t.Errorf("only %d preview scroll surfaces stop scroll chaining, want at least 3", got)
+	}
+
+	// The card owns a compositing layer, so its scroll cannot dirty the page.
+	if !strings.Contains(modal, "transform:translateZ(0)") {
+		t.Error("the document preview card is not promoted to its own layer, so scrolling it repaints the page behind")
+	}
+
+	// A 60px shadow behind an opaque card is invisible but repaints on scroll.
+	if strings.Contains(modal, "box-shadow:0 24px 60px") {
+		t.Error("the document preview card still carries the oversized shadow that repaints on every scroll frame")
+	}
+}
+
 func TestClosingNativePDFReturnsToChat(t *testing.T) {
 	darwinSource, err := os.ReadFile("app_darwin.go")
 	if err != nil {
