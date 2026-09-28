@@ -41,6 +41,9 @@ var (
 	procIsZoomed                 = user32.NewProc("IsZoomed")
 	procIsIconic                 = user32.NewProc("IsIconic")
 	procMoveWindow               = user32.NewProc("MoveWindow")
+	procPeekMessage              = user32.NewProc("PeekMessageW")
+	procTranslateMessage         = user32.NewProc("TranslateMessage")
+	procDispatchMessage          = user32.NewProc("DispatchMessageW")
 	procMonitorFromPoint         = user32.NewProc("MonitorFromPoint")
 	procGetMonitorInfo           = user32.NewProc("GetMonitorInfoW")
 	procCreateJobObject          = kernel32.NewProc("CreateJobObjectW")
@@ -623,6 +626,31 @@ func saveWindowState(dir string, hwnd uintptr) {
 	}
 }
 
+// drainThreadQueue removes and dispatches every message currently queued for
+// this thread, up to a small bound.
+//
+// It exists for the account-switch teardown. The vendored webview only *posts*
+// WM_CLOSE, and the WM_DESTROY that follows posts a WM_QUIT for this thread.
+// Left in the queue, that WM_QUIT is handed to the next session's Run(), which
+// returns on it immediately: the rebuilt window flashes and the app exits, which
+// is exactly the reported "it force-closes when I switch accounts".
+//
+// The message buffer is deliberately opaque. Only PeekMessage's BOOL result is
+// read, so this assumes nothing about the MSG layout, and the bound means it can
+// never spin -- an empty queue is the normal way out.
+func drainThreadQueue() {
+	const pmRemove = 0x0001
+	var msg [64]byte
+	for i := 0; i < 64; i++ {
+		has, _, _ := procPeekMessage.Call(uintptr(unsafe.Pointer(&msg[0])), 0, 0, 0, pmRemove)
+		if has == 0 {
+			return
+		}
+		_, _, _ = procTranslateMessage.Call(uintptr(unsafe.Pointer(&msg[0])))
+		_, _, _ = procDispatchMessage.Call(uintptr(unsafe.Pointer(&msg[0])))
+	}
+}
+
 func runApp() {
 	cleanupOldWindowsBinary()
 	initWindowsProcessProtection()
@@ -640,8 +668,13 @@ func runApp() {
 	// engine on the account that is now active. The first account always
 	// resolves to the legacy user-data dir, so the existing pairing is adopted
 	// by reference and never moved.
-	switchRequested := false
-	for !switchRequested {
+	//
+	// The loop has to come back round when a switch was requested, so the flag
+	// is declared per iteration and only an ordinary close leaves the loop.
+	// Hoisting it out of the loop inverted that test and made every switch fall
+	// straight out of runApp, which closed the app.
+	for {
+		switchRequested := false
 		dataDir, dataDirErr := activeAccountDataPath()
 		if dataDirErr != nil {
 			dataDir = userDataDir
@@ -972,8 +1005,17 @@ func runApp() {
 		saveWindowState(userDataDir, hwnd)
 		w.Destroy()
 
-		// Rebuild the engine for the account that is now active. The window is
-		// recreated with the session, so a switch reads as an app restart on
-		// Windows; the research doc accepts that for the one-live-engine model.
+		// Destroy() only posts WM_CLOSE, so the window is still alive here and
+		// its teardown is still queued. Complete it now, while this window is the
+		// only one on the thread: otherwise the WM_QUIT that WM_DESTROY posts is
+		// delivered to the next session's Run(), which returns on it at once and
+		// the rebuilt window flashes and disappears.
+		drainThreadQueue()
+
+		// An ordinary close ends the app. A switch goes round again and rebuilds
+		// the engine on the account that is now active.
+		if !switchRequested {
+			return
+		}
 	}
 }
