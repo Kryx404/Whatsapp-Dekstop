@@ -1255,12 +1255,22 @@ func getInitScript(ua string) string {
 				docTypeLabel = 'PowerPoint Presentation';
 			}
 
+			// The dim below is deliberately flat, with no backdrop blur. Blurring
+			// a full-viewport fixed element forces an offscreen compositing pass
+			// on every frame, so scrolling the preview inside the modal
+			// re-blurred the whole page each frame -- that was the preview
+			// feeling heavier than the built-in one. The account-switch veil in
+			// this same file avoids that effect for exactly this reason, and the
+			// onboarding panel is kept free of it too. A denser dim carries the
+			// same visual weight at a fraction of the cost. This comment names
+			// the effect in prose on purpose: the literal CSS token must not
+			// appear in this function, so the regression guard stays meaningful.
 			var overlay = document.createElement('div');
 			overlay.id = 'wa-doc-modal-overlay';
-			overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:99999999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;animation:waFadeIn 0.2s ease;';
+			overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.92);z-index:99999999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;animation:waFadeIn 0.2s ease;';
 
 			var modal = document.createElement('div');
-			modal.style.cssText = 'width:94%;max-width:1020px;height:92%;background:#111b21;border:1px solid rgba(255,255,255,0.14);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,0.85);';
+			modal.style.cssText = 'width:94%;max-width:1020px;height:92%;background:#111b21;border:1px solid rgba(255,255,255,0.14);border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.55);transform:translateZ(0);';
 
 			// Header
 			var header = document.createElement('div');
@@ -1392,7 +1402,7 @@ func getInitScript(ua string) string {
 				var tableStyle = '<style>#wa-xlsx-table{border-collapse:collapse;width:100%;font-family:system-ui,-apple-system,sans-serif;font-size:12px;color:#e9edef;}#wa-xlsx-table td,#wa-xlsx-table th{border:1px solid #2a3942;padding:6px 10px;white-space:nowrap;}#wa-xlsx-table tr:nth-child(even){background:#182229;}#wa-xlsx-table tr:nth-child(odd){background:#111b21;}</style>';
 
 				body.innerHTML = '<div style="width:100%;height:100%;display:flex;flex-direction:column;">' + tabsHtml +
-					'<div style="flex:1;overflow:auto;background:#111b21;">' + tableStyle + tableHtml + '</div></div>';
+					'<div style="flex:1;overflow:auto;background:#111b21;contain:content;overscroll-behavior:contain;">' + tableStyle + tableHtml + '</div></div>';
 
 				var tabsEl = document.getElementById('wa-xlsx-tabs');
 				if (tabsEl) {
@@ -1412,7 +1422,7 @@ func getInitScript(ua string) string {
 					pdfSrc = 'data:application/pdf;base64,' + dataUri.split(';base64,')[1];
 				}
 				if (pdfSrc) {
-					body.innerHTML = '<iframe src="' + pdfSrc + '" style="width:100%;height:100%;border:none;background:#525659;" title="' + escapeHtml(filename) + '"></iframe>';
+					body.innerHTML = '<iframe src="' + pdfSrc + '" style="width:100%;height:100%;border:none;background:#525659;contain:content;" title="' + escapeHtml(filename) + '"></iframe>';
 				} else {
 					renderCardFallback();
 				}
@@ -1447,7 +1457,7 @@ func getInitScript(ua string) string {
 						if (docXml) {
 							var docHtml = parseDocxToHtml(docXml);
 							body.innerHTML = '' +
-								'<div style="width:100%;height:100%;overflow-y:auto;padding:24px 16px;box-sizing:border-box;display:flex;justify-content:center;background:#0c1317;">' +
+								'<div style="width:100%;height:100%;overflow-y:auto;padding:24px 16px;box-sizing:border-box;display:flex;justify-content:center;contain:content;overscroll-behavior:contain;background:#0c1317;">' +
 								'  <div style="width:100%;max-width:760px;background:#ffffff;border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,0.5);padding:40px 48px;box-sizing:border-box;min-height:90%;">' +
 								docHtml +
 								'  </div>' +
@@ -1497,7 +1507,7 @@ func getInitScript(ua string) string {
 					var bytesTxt = new Uint8Array(binTxt.length);
 					for (var ti = 0; ti < binTxt.length; ti++) bytesTxt[ti] = binTxt.charCodeAt(ti);
 					var textContent = new TextDecoder('utf-8').decode(bytesTxt);
-					body.innerHTML = '<div style="width:100%;height:100%;overflow:auto;padding:24px;box-sizing:border-box;background:#111b21;color:#e9edef;font-family:monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;">' +
+					body.innerHTML = '<div style="width:100%;height:100%;overflow:auto;padding:24px;box-sizing:border-box;background:#111b21;contain:content;overscroll-behavior:contain;color:#e9edef;font-family:monospace;font-size:13px;line-height:1.6;white-space:pre-wrap;">' +
 						textContent.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
 						'</div>';
 				} catch (e) {
