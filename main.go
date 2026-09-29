@@ -838,20 +838,35 @@ func getInitScript(ua string) string {
 
 				// Check text only on leaf-ish nodes to prevent matching unrelated long container text
 				if (!node.children || node.children.length < 5) {
-					var text = (node.innerText || '').trim();
+					var text = (node.innerText || node.textContent || '').trim();
 					if (text.length > 0 && text.length < 250) {
 						var textMatch = text.match(/([^\n\r<>]{1,180}\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf))\b/i);
-						if (textMatch && textMatch[1]) return textMatch[1].trim();
+						if (textMatch && textMatch[1]) return titleMatch ? titleMatch[1].trim() : textMatch[1].trim();
 					}
 				}
 				if (node === msgContainer) break;
 				node = node.parentElement;
 			}
+
+			var leafNodes = msgContainer.querySelectorAll('span[title], span, div[title], div');
+			for (var li = 0; li < leafNodes.length && li < 25; li++) {
+				var leaf = leafNodes[li];
+				var lTitle = leaf.getAttribute && (leaf.getAttribute('title') || leaf.getAttribute('aria-label') || '');
+				var ltMatch = lTitle && lTitle.match(/([^\n\r<>]{1,180}\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf))\b/i);
+				if (ltMatch && ltMatch[1]) return ltMatch[1].trim();
+				if (!leaf.children || leaf.children.length === 0) {
+					var lText = (leaf.innerText || leaf.textContent || '').trim();
+					if (lText.length > 0 && lText.length < 250) {
+						var lm = lText.match(/([^\n\r<>]{1,180}\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf))\b/i);
+						if (lm && lm[1]) return lm[1].trim();
+					}
+				}
+			}
 			return '';
 		}
 		function isRecentPDFIntent() {
 			return !!lastClickedDocName && isDocumentFileName(lastClickedDocName) &&
-				(Date.now() - lastDocumentIntentAt) < 20000;
+				(Date.now() - lastDocumentIntentAt) < 30000;
 		}
 		document.addEventListener('click', function(e) {
 			var name = extractDocumentName(e.target);
@@ -1866,7 +1881,7 @@ func getInitScript(ua string) string {
 					bType === 'text/csv' || bType === 'text/plain' ||
 					(blob && (blob.type === 'application/octet-stream' || bType === '') && isRecentPDFIntent());
 
-				if (blob && isDocBlob && !isRecentUpload() && !isRecentExplicitDownload()) {
+				if (blob && isDocBlob && !isRecentUpload() && (!isRecentExplicitDownload() || isRecentPDFIntent())) {
 					var name = resolveDownloadFilename(lastClickedDocName, '') || 'document';
 					if (!name.includes('.')) {
 						if (bType.indexOf('pdf') >= 0) name += '.pdf';
@@ -3842,7 +3857,7 @@ func getInitScript(ua string) string {
 			document.addEventListener('click', function(e) {
 				var target = e.target;
 				if (target && target.closest &&
-					(target.closest(viewerDownloadSelector) || isExplicitDownloadMenuItem(target))) {
+					((target.closest('[data-testid="media-viewer"], [role="toolbar"], header') && target.closest(viewerDownloadSelector)) || isExplicitDownloadMenuItem(target))) {
 					lastExplicitDownloadAt = Date.now();
 				}
 			}, true);
@@ -3900,10 +3915,15 @@ func getInitScript(ua string) string {
 				var href = this.href || this.getAttribute('href');
 				if ((downloadAttr !== null || this.download) && href && (href.indexOf('blob:') === 0 || href.indexOf('data:') === 0)) {
 					var name = resolveDownloadFilename(downloadAttr || this.download || lastClickedDocName || 'whatsapp_media', '');
-					// An explicit download anchor means save only. Opening a document
-					// preview is reserved for clicking the document itself.
-					lastExplicitDownloadAt = Date.now();
-					captureDownload(href, name, false);
+					var isDoc = isDocumentFileName(name);
+					var isExplicit = isRecentExplicitDownload() && !forwardingDocumentDownload && !pendingViewerDownloadClick;
+					var shouldOpen = isDoc && (forwardingDocumentDownload || isRecentPDFIntent() || !isExplicit);
+					if (shouldOpen) {
+						captureDownload(href, name, true);
+					} else {
+						lastExplicitDownloadAt = Date.now();
+						captureDownload(href, name, false);
+					}
 					return;
 				}
 				return originalAnchorClick.apply(this, arguments);
@@ -3920,9 +3940,15 @@ func getInitScript(ua string) string {
 							e.preventDefault();
 							e.stopPropagation();
 							var name = resolveDownloadFilename(downloadAttr || target.download || lastClickedDocName || 'whatsapp_media', '');
-							// The user clicked Download directly: do not open a second preview.
-							lastExplicitDownloadAt = Date.now();
-							captureDownload(href, name, false);
+							var isDoc = isDocumentFileName(name);
+							var isExplicit = isRecentExplicitDownload() && !forwardingDocumentDownload && !pendingViewerDownloadClick;
+							var shouldOpen = isDoc && (forwardingDocumentDownload || isRecentPDFIntent() || !isExplicit);
+							if (shouldOpen) {
+								captureDownload(href, name, true);
+							} else {
+								lastExplicitDownloadAt = Date.now();
+								captureDownload(href, name, false);
+							}
 							return;
 						}
 					}

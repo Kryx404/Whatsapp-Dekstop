@@ -656,7 +656,10 @@ static BOOL showNativePDFPreview(const char* pathStr) {
         @autoreleasepool {
             NSURL* url = [NSURL fileURLWithPath:path];
             PDFDocument* document = [[PDFDocument alloc] initWithURL:url];
-            if (!document) return;
+            if (!document) {
+                [[NSWorkspace sharedWorkspace] openURL:url];
+                return;
+            }
 
             if (!g_pdfPreviewWindow) {
                 NSRect frame = NSMakeRect(0, 0, 920, 760);
@@ -677,6 +680,7 @@ static BOOL showNativePDFPreview(const char* pathStr) {
             // re-triggered preview look like it was looping.
             if ([g_pdfPreviewWindow isVisible] &&
                 [[g_pdfPreviewWindow title] isEqualToString:[path lastPathComponent]]) {
+                [g_pdfPreviewWindow orderFrontRegardless];
                 [g_pdfPreviewWindow makeKeyAndOrderFront:nil];
                 [NSApp activateIgnoringOtherApps:YES];
 #if !__has_feature(objc_arc)
@@ -701,6 +705,7 @@ static BOOL showNativePDFPreview(const char* pathStr) {
             [document release];
 #endif
             [g_pdfPreviewWindow setTitle:[path lastPathComponent]];
+            [g_pdfPreviewWindow orderFrontRegardless];
             [g_pdfPreviewWindow makeKeyAndOrderFront:nil];
             [NSApp activateIgnoringOtherApps:YES];
         }
