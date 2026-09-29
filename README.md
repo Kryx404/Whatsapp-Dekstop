@@ -37,7 +37,7 @@ Get the latest stable release for your operating system (updated automatically):
 
 * **Ultra-Lightweight Engine:** Built directly on native OS webviews (WebKit on macOS, WebView2 on Windows). Minimal RAM and battery footprint compared to Chromium/Electron apps.
 * **Zero Telemetry & Private by Design:** Communicates straight with `https://web.whatsapp.com`. No analytics tracking, no user profiling, and no proxy or relay servers.
-* **Instant Privacy Mode & Auto-Lock:** Quickly redact chat previews, sender names, and media thumbnails with a shortcut (`Ctrl+Shift+P` / `Cmd+Shift+P`) or automatic lock on idle.
+* **Instant Privacy Mode & Auto-Lock:** Quickly redact chat previews, sender names, and media thumbnails with a shortcut (`Ctrl+Shift+P` / `Cmd+Shift+P`) or automatic lock when window loses focus.
 * **Built-in Document & Office Preview:** Instant in-app previews for PDFs, Word docs, Excel spreadsheets, PowerPoint slides, and text attachments without cluttering your drive with duplicate files.
 * **Windows Setup Wizard:** Per-user installer with branded artwork, Start Menu and desktop shortcuts, and clean uninstallation in Windows Apps & Features.
 * **Unified Settings & Module Guard:** Single accessible settings control (`Ctrl+,` / `Cmd+,`) protected by runtime module isolation (`waRunModule`) against unexpected DOM changes.

@@ -536,6 +536,27 @@ func TestPrivacyModeCoversArchivedChatsAndAllAvatarVariants(t *testing.T) {
 	}
 }
 
+func TestPrivacyAutoLockGatesOnFocusLossWithoutIdleTimer(t *testing.T) {
+	script := getInitScript("test-agent")
+	if strings.Contains(script, "IDLE_MS") {
+		t.Fatal("privacy auto-lock must not use idle timer")
+	}
+	if strings.Contains(script, "resetIdleTimer") {
+		t.Fatal("privacy auto-lock must not listen to continuous activity events to reset idle timer")
+	}
+	for _, want := range []string{
+		"window.addEventListener('blur'",
+		"window.addEventListener('focus'",
+		"lockOnBlur()",
+		"unlockOnFocus()",
+		"Auto-lock when window loses focus",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("privacy auto-lock missing focus-loss invariant %q", want)
+		}
+	}
+}
+
 func TestThemeReapplyIsBoundedAndAvoidsObserverFeedbackLoop(t *testing.T) {
 	script := getInitScript("test-agent")
 	for _, want := range []string{

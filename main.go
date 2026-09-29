@@ -2822,7 +2822,7 @@ func getInitScript(ua string) string {
 			}
 
 			window.togglePrivacyMode = function() {
-				// A manual toggle also cancels any pending auto-lock timer.
+				autoLocked = false;
 				return applyPrivacyMode(!isPrivacyActive, false);
 			};
 			window.isPrivacyModeActive = function() {
@@ -2885,23 +2885,18 @@ func getInitScript(ua string) string {
 				}).catch(function() {});
 			}
 
-			// Auto-lock on idle: the Control Center copy promises "blur chats and
-			// media when cursor is idle", so honor it. When enabled, the app
-			// blurs after a period of no mouse/keyboard activity, or immediately
-			// when the window loses focus, and unblurs on the next interaction.
+			// Auto-lock when window loses focus: blurs when window loses focus or
+			// is hidden, and unblurs upon regaining focus or interaction.
 			// Persisted in localStorage so it survives reloads.
 			var AUTO_LOCK_KEY = 'wa_desk_privacy_autolock';
 			var autoLockEnabled = storageGet(AUTO_LOCK_KEY) === '1';
-			var IDLE_MS = 60000;
-			var idleTimer = null;
 			var autoLocked = false;
 
 			function isAutoLockEnabled() { return autoLockEnabled; }
 			function setAutoLockEnabled(on) {
 				autoLockEnabled = !!on;
 				storageSet(AUTO_LOCK_KEY, autoLockEnabled ? '1' : '0');
-				if (!autoLockEnabled && autoLocked) unlockFromIdle();
-				else resetIdleTimer();
+				if (!autoLockEnabled && autoLocked) unlockOnFocus();
 				return autoLockEnabled;
 			}
 			window.isAutoLockEnabled = isAutoLockEnabled;
@@ -2909,46 +2904,34 @@ func getInitScript(ua string) string {
 			window.isPrivacyAutoLock = isAutoLockEnabled;
 			window.setPrivacyAutoLock = setAutoLockEnabled;
 
-			function lockForIdle() {
-				if (!autoLockEnabled || autoLocked) return;
+			function lockOnBlur() {
+				if (!autoLockEnabled || autoLocked || isPrivacyActive) return;
 				autoLocked = true;
 				applyPrivacyMode(true, true);
 			}
-			function unlockFromIdle() {
+			function unlockOnFocus() {
 				if (!autoLocked) return;
 				autoLocked = false;
 				applyPrivacyMode(false, true);
 			}
-			// mousemove fires continuously; re-arming the idle timer on every
-			// event burns the main thread during cursor travel. A few resets
-			// per second are more than enough for an idle timeout of minutes.
-			var lastIdleReset = 0;
-			function resetIdleTimer(force) {
-				var now = Date.now();
-				if (!force && now - lastIdleReset < 3000) return;
-				lastIdleReset = now;
-				if (autoLocked) unlockFromIdle();
-				clearTimeout(idleTimer);
-				if (autoLockEnabled) idleTimer = setTimeout(lockForIdle, IDLE_MS);
-			}
 
-			var activityEvents = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel'];
-			activityEvents.forEach(function(ev) {
-				window.addEventListener(ev, resetIdleTimer, { passive: true, capture: true });
+			window.addEventListener('blur', function() {
+				if (autoLockEnabled) lockOnBlur();
 			});
-			// Losing window focus is the strongest "stepping away" signal.
-			window.addEventListener('blur', function() { if (autoLockEnabled) lockForIdle(); });
-			window.addEventListener('focus', function() { resetIdleTimer(true); });
+			window.addEventListener('focus', function() {
+				if (autoLocked) unlockOnFocus();
+			});
+			window.addEventListener('mousedown', function() {
+				if (autoLocked) unlockOnFocus();
+			}, true);
 			document.addEventListener('visibilitychange', function() {
-				if (document.hidden) { if (autoLockEnabled) lockForIdle(); }
-				else {
-					resetIdleTimer(true);
-					// A refresh dropped while the window was hidden must not wait for
-					// the next interval tick to put the markers back.
+				if (document.hidden) {
+					if (autoLockEnabled) lockOnBlur();
+				} else {
+					if (autoLocked) unlockOnFocus();
 					if (isPrivacyActive) schedulePrivacySidebarRefresh();
 				}
 			});
-			resetIdleTimer(true);
 
 			window.addEventListener('keydown', function(e) {
 				if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
@@ -4501,7 +4484,7 @@ func getInitScript(ua string) string {
 					'</div>' +
 					'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">' +
 					'  <input type="checkbox" id="wa-priv-autolock" style="width:14px;height:14px;accent-color:#00a884;cursor:pointer;margin:0;" />' +
-					'  <span class="wa-text-muted" style="font-size:11px;">Auto-lock when idle or window loses focus (unblurs on activity)</span>' +
+					'  <span class="wa-text-muted" style="font-size:11px;">Auto-lock when window loses focus (unblurs on focus)</span>' +
 					'</label>' +
 					'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">' +
 					'  <input type="checkbox" id="wa-blur-avatars" style="width:14px;height:14px;accent-color:#00a884;cursor:pointer;margin:0;" />' +
@@ -4876,7 +4859,7 @@ func getInitScript(ua string) string {
 					autoLockBox.onchange = function() {
 						if (window.setPrivacyAutoLock) window.setPrivacyAutoLock(autoLockBox.checked);
 						showFloatingToast(autoLockBox.checked ?
-							'🔒 Privacy auto-lock: on (blurs after 60s idle)' :
+							'🔒 Privacy auto-lock: on (blurs when window loses focus)' :
 							'🔓 Privacy auto-lock: off');
 					};
 				}
