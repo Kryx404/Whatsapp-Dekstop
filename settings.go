@@ -27,6 +27,7 @@ type AppSettings struct {
 	SpellCheckEnabled    bool   `json:"spell_check_enabled"`
 	SpellCheckLang       string `json:"spell_check_lang"`
 	BlurAvatars          bool   `json:"blur_avatars"`
+	BlurChatListOnly     bool   `json:"blur_chatlist_only"`
 	// LastCrashNotified is the unix time of the crash log last surfaced to
 	// the user via the issue reporter, so the startup nudge fires once.
 	LastCrashNotified int64 `json:"last_crash_notified"`
@@ -188,6 +189,17 @@ func setBlurAvatars(on bool) bool {
 	s.BlurAvatars = on
 	_ = saveSettings(s)
 	return s.BlurAvatars
+}
+
+func getBlurChatListOnly() bool {
+	return loadSettings().BlurChatListOnly
+}
+
+func setBlurChatListOnly(on bool) bool {
+	s := loadSettings()
+	s.BlurChatListOnly = on
+	_ = saveSettings(s)
+	return s.BlurChatListOnly
 }
 
 // findDownloadedFile reports the first regular file matching filename anywhere

@@ -889,6 +889,12 @@ func runApp() {
 	_ = w.Bind("setBlurAvatarsNative", func(on bool) bool {
 		return setBlurAvatars(on)
 	})
+	_ = w.Bind("getBlurChatListOnlyNative", func() bool {
+		return getBlurChatListOnly()
+	})
+	_ = w.Bind("setBlurChatListOnlyNative", func(on bool) bool {
+		return setBlurChatListOnly(on)
+	})
 	_ = w.Bind("getPendingCrashNative", func() string {
 		return pendingCrashReport()
 	})

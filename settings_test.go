@@ -239,3 +239,17 @@ func TestSaveDownloadedFileRejectsOversizedPayload(t *testing.T) {
 		t.Fatal("rejected attachment must leave nothing on disk")
 	}
 }
+
+func TestBlurChatListOnlySettingRoundtrip(t *testing.T) {
+	orig := getBlurChatListOnly()
+	defer setBlurChatListOnly(orig)
+
+	setBlurChatListOnly(true)
+	if !getBlurChatListOnly() {
+		t.Error("expected BlurChatListOnly to be true")
+	}
+	setBlurChatListOnly(false)
+	if getBlurChatListOnly() {
+		t.Error("expected BlurChatListOnly to be false")
+	}
+}

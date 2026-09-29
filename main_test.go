@@ -557,6 +557,33 @@ func TestPrivacyAutoLockGatesOnFocusLossWithoutIdleTimer(t *testing.T) {
 	}
 }
 
+func TestBlurChatListOnlyInvariants(t *testing.T) {
+	script := getInitScript("test-agent")
+	for _, want := range []string{
+		"wa-blur-chatlist-only",
+		"window.isBlurChatListOnly",
+		"window.setBlurChatListOnly",
+		".blur-chatlist-only [data-wa-privacy-chat-row=\"1\"] span",
+		".blur-chatlist-only #main",
+		"Blur chat list only (keep opened chat clear)",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("blur chat list only feature missing %q", want)
+		}
+	}
+
+	for _, platformFile := range []string{"app_darwin.go", "app_windows.go"} {
+		source, err := os.ReadFile(platformFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := string(source)
+		if !strings.Contains(content, "getBlurChatListOnlyNative") || !strings.Contains(content, "setBlurChatListOnlyNative") {
+			t.Errorf("%s missing native bindings for BlurChatListOnly", platformFile)
+		}
+	}
+}
+
 func TestThemeReapplyIsBoundedAndAvoidsObserverFeedbackLoop(t *testing.T) {
 	script := getInitScript("test-agent")
 	for _, want := range []string{

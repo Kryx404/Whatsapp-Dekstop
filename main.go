@@ -2221,7 +2221,13 @@ func getInitScript(ua string) string {
 				'.privacy-mode [data-wa-privacy-chat-row="1"] ._ak8k,',
 				'.privacy-mode [data-wa-privacy-archived-row="1"] span,',
 				'.privacy-mode [data-wa-privacy-archived-row="1"] ._ak8q,',
-				'.privacy-mode [data-wa-privacy-archived-row="1"] ._ak8k',
+				'.privacy-mode [data-wa-privacy-archived-row="1"] ._ak8k,',
+				'.blur-chatlist-only [data-wa-privacy-chat-row="1"] span,',
+				'.blur-chatlist-only [data-wa-privacy-chat-row="1"] ._ak8q,',
+				'.blur-chatlist-only [data-wa-privacy-chat-row="1"] ._ak8k,',
+				'.blur-chatlist-only [data-wa-privacy-archived-row="1"] span,',
+				'.blur-chatlist-only [data-wa-privacy-archived-row="1"] ._ak8q,',
+				'.blur-chatlist-only [data-wa-privacy-archived-row="1"] ._ak8k',
 				'{ filter: blur(6px) !important; transition: filter 0.15s ease-out !important; }',
 				// The Archived view explanation is UI guidance, not private chat data.
 				'.privacy-mode [data-wa-privacy-archived-info="1"],',
@@ -2230,22 +2236,35 @@ func getInitScript(ua string) string {
 				'.privacy-mode [data-wa-privacy-archive-control="1"],',
 				'.privacy-mode [data-wa-privacy-archive-control="1"] *',
 				'{ filter: none !important; }',
-				'.privacy-mode.blur-avatars [data-wa-privacy-avatar="1"]',
+				'.privacy-mode.blur-avatars [data-wa-privacy-avatar="1"],',
+				'.blur-chatlist-only.blur-avatars [data-wa-privacy-avatar="1"]',
 				'{ filter: blur(12px) !important; transition: filter 0.15s ease-out !important; }',
 				'.privacy-mode.blur-avatars [data-wa-privacy-archived-row="1"] img,',
+				'.blur-chatlist-only.blur-avatars [data-wa-privacy-archived-row="1"] img,',
 				'.privacy-mode.blur-avatars [data-wa-privacy-archived-row="1"] image,',
+				'.blur-chatlist-only.blur-avatars [data-wa-privacy-archived-row="1"] image,',
 				'.privacy-mode.blur-avatars [data-wa-privacy-archived-row="1"] ._ak8h,',
+				'.blur-chatlist-only.blur-avatars [data-wa-privacy-archived-row="1"] ._ak8h,',
 				'.privacy-mode.blur-avatars [data-wa-privacy-archived-row="1"] [data-testid*="avatar" i],',
+				'.blur-chatlist-only.blur-avatars [data-wa-privacy-archived-row="1"] [data-testid*="avatar" i],',
 				'.privacy-mode.blur-avatars [data-wa-privacy-archived-row="1"] [data-testid="default-user"],',
+				'.blur-chatlist-only.blur-avatars [data-wa-privacy-archived-row="1"] [data-testid="default-user"],',
 				'.privacy-mode.blur-avatars [data-wa-privacy-archived-row="1"] [data-icon="default-user"],',
+				'.blur-chatlist-only.blur-avatars [data-wa-privacy-archived-row="1"] [data-icon="default-user"],',
 				'.privacy-mode.blur-avatars [data-wa-privacy-archived-row="1"] [data-icon="default-group"],',
-				'.privacy-mode.blur-avatars [data-wa-privacy-archived-row="1"] svg[viewBox="0 0 49 49"]',
+				'.blur-chatlist-only.blur-avatars [data-wa-privacy-archived-row="1"] [data-icon="default-group"],',
+				'.privacy-mode.blur-avatars [data-wa-privacy-archived-row="1"] svg[viewBox="0 0 49 49"],',
+				'.blur-chatlist-only.blur-avatars [data-wa-privacy-archived-row="1"] svg[viewBox="0 0 49 49"]',
 				'{ filter: blur(12px) !important; transition: filter 0.15s ease-out !important; }',
 				// Hovering any row or container restores its contents instantly.
 				'.privacy-mode [data-wa-privacy-hover="1"] span,',
 				'.privacy-mode [data-wa-privacy-hover="1"] ._ak8q,',
 				'.privacy-mode [data-wa-privacy-hover="1"] ._ak8k,',
-				'.privacy-mode [data-wa-privacy-reveal="1"]',
+				'.privacy-mode [data-wa-privacy-reveal="1"],',
+				'.blur-chatlist-only [data-wa-privacy-hover="1"] span,',
+				'.blur-chatlist-only [data-wa-privacy-hover="1"] ._ak8q,',
+				'.blur-chatlist-only [data-wa-privacy-hover="1"] ._ak8k,',
+				'.blur-chatlist-only [data-wa-privacy-reveal="1"]',
 				'{ filter: none !important; }',
 				// Layer 2: everything textual inside a message bubble.
 				// Hovering the bubble restores the whole subtree.
@@ -2400,6 +2419,45 @@ func getInitScript(ua string) string {
 				'{ filter: blur(16px) !important; transition: filter 0.15s ease-out !important; }',
 				'.privacy-mode [data-testid="media-viewer"]:hover img,',
 				'.privacy-mode [data-testid="media-viewer"]:hover video',
+				'{ filter: none !important; }',
+				// Layer 6: when "Blur chat list only" is enabled, keep #main (opened chat) completely unblurred
+				'.blur-chatlist-only #main,',
+				'.blur-chatlist-only #main *,',
+				'.privacy-mode.blur-chatlist-only #main,',
+				'.privacy-mode.blur-chatlist-only #main *,',
+				'.privacy-mode.blur-chatlist-only #main [data-testid="msg-container"] span,',
+				'.privacy-mode.blur-chatlist-only #main .message-in span,',
+				'.privacy-mode.blur-chatlist-only #main .message-out span,',
+				'.privacy-mode.blur-chatlist-only #main [data-testid="msg-container"] img,',
+				'.privacy-mode.blur-chatlist-only #main [data-testid="msg-container"] video,',
+				'.privacy-mode.blur-chatlist-only #main [data-testid="msg-container"] canvas,',
+				'.privacy-mode.blur-chatlist-only #main .message-in img,',
+				'.privacy-mode.blur-chatlist-only #main .message-in video,',
+				'.privacy-mode.blur-chatlist-only #main .message-in canvas,',
+				'.privacy-mode.blur-chatlist-only #main .message-out img,',
+				'.privacy-mode.blur-chatlist-only #main .message-out video,',
+				'.privacy-mode.blur-chatlist-only #main .message-out canvas,',
+				'.privacy-mode.blur-chatlist-only #main [role="row"] img,',
+				'.privacy-mode.blur-chatlist-only #main [role="row"] image,',
+				'.privacy-mode.blur-chatlist-only #main [role="row"] video,',
+				'.privacy-mode.blur-chatlist-only #main [role="row"] canvas,',
+				'.privacy-mode.blur-chatlist-only #main [role="row"] iframe,',
+				'.privacy-mode.blur-chatlist-only #main [role="row"] [style*="background-image"],',
+				'.privacy-mode.blur-chatlist-only #main [role="row"] [data-testid="quoted-message"],',
+				'.privacy-mode.blur-chatlist-only #main [data-testid="sticker-container"],',
+				'.privacy-mode.blur-chatlist-only #main [data-testid="sticker-container"] *,',
+				'.privacy-mode.blur-chatlist-only #main [data-testid="animated-sticker"],',
+				'.privacy-mode.blur-chatlist-only #main img[src*=".webp"][data-testid*="sticker" i],',
+				'.privacy-mode.blur-chatlist-only #main header span,',
+				'.privacy-mode.blur-chatlist-only #main header img,',
+				'.privacy-mode.blur-chatlist-only #main header image,',
+				'.privacy-mode.blur-chatlist-only #main header ._ak8h,',
+				'.privacy-mode.blur-chatlist-only #main header [data-testid="default-user"],',
+				'.privacy-mode.blur-chatlist-only #main header [data-icon="default-user"],',
+				'.privacy-mode.blur-chatlist-only #main header svg[viewBox="0 0 49 49"],',
+				'.privacy-mode.blur-chatlist-only #main header div[role="button"]:first-child div.x1n2onr6.x16ye13r.x5lhr3w,',
+				'.privacy-mode.blur-chatlist-only #main [data-testid="msg-container"],',
+				'.privacy-mode.blur-chatlist-only #main [data-testid="msg-container"] *',
 				'{ filter: none !important; }',
 				// Drag & drop visual feedback
 				'.wa-drag-over { outline: 3px solid #00a884; outline-offset: -3px; }',
@@ -2737,10 +2795,10 @@ func getInitScript(ua string) string {
 				flushPrivacyAvatarGeometry();
 			}
 			function scheduleArchivedPrivacyMark() {
-				if (!isPrivacyActive) return;
+				if (!isPrivacyActive && !(window.isBlurChatListOnly && window.isBlurChatListOnly())) return;
 				[0, 100, 300].forEach(function(delay) {
 					setTimeout(function() {
-						if (isPrivacyActive) markArchivedPrivacyViews();
+						if (isPrivacyActive || (window.isBlurChatListOnly && window.isBlurChatListOnly())) markArchivedPrivacyViews();
 					}, delay);
 				});
 			}
@@ -2748,7 +2806,11 @@ func getInitScript(ua string) string {
 				var target = e.target && e.target.closest ? e.target.closest('[data-icon*="archive" i], [data-testid*="archive" i], [aria-label*="archiv" i], [aria-label*="diarsip" i]') : null;
 				if (target || isPrivacySidebarControl(e.target)) scheduleArchivedPrivacyMark();
 			}, true);
-			document.addEventListener('mouseover', function(e) { updatePrivacyHoverFromTarget(e.target); }, true);
+			document.addEventListener('mouseover', function(e) {
+				if (isPrivacyActive || (window.isBlurChatListOnly && window.isBlurChatListOnly())) {
+					updatePrivacyHoverFromTarget(e.target);
+				}
+			}, true);
 			// Deliberately no mousemove handler. It fires on every pixel of travel,
 			// and each call walked the ancestor chain asking whether each level was
 			// the Archived entry. A passive scroll listener covers the one case it
@@ -2756,7 +2818,7 @@ func getInitScript(ua string) string {
 			// at one attribute removal per frame instead of per pixel.
 			var privacyScrollFrame = 0;
 			document.addEventListener('scroll', function() {
-				if (!isPrivacyActive || !activePrivacyHoverRow || privacyScrollFrame) return;
+				if ((!isPrivacyActive && !(window.isBlurChatListOnly && window.isBlurChatListOnly())) || !activePrivacyHoverRow || privacyScrollFrame) return;
 				if (!window.requestAnimationFrame) { clearPrivacyHoverRow(); return; }
 				privacyScrollFrame = window.requestAnimationFrame(function() {
 					privacyScrollFrame = 0;
@@ -2764,6 +2826,7 @@ func getInitScript(ua string) string {
 				});
 			}, { passive: true, capture: true });
 			document.addEventListener('mouseout', function(e) {
+				if (!isPrivacyActive && !(window.isBlurChatListOnly && window.isBlurChatListOnly())) return;
 				var row = privacyChatRowFromTarget(e.target);
 				if (row && (!e.relatedTarget || !row.contains(e.relatedTarget))) clearPrivacyHoverRow();
 			}, true);
@@ -2772,7 +2835,7 @@ func getInitScript(ua string) string {
 				clearTimeout(privacySidebarRefreshTimer);
 				privacySidebarRefreshTimer = setTimeout(function() {
 					privacySidebarRefreshTimer = null;
-					if (!isPrivacyActive) return;
+					if (!isPrivacyActive && !(window.isBlurChatListOnly && window.isBlurChatListOnly())) return;
 					// WhatsApp's virtualized chat list mutates continuously while the
 					// user scrolls, so this ran a full re-scan several times a second
 					// during the gesture. Reschedule instead of dropping: the markers
@@ -2788,13 +2851,21 @@ func getInitScript(ua string) string {
 				}, 100);
 			}
 			var privacySidebarObserver = new MutationObserver(function() {
-				if (isPrivacyActive) schedulePrivacySidebarRefresh();
+				if (isPrivacyActive || (window.isBlurChatListOnly && window.isBlurChatListOnly())) schedulePrivacySidebarRefresh();
 			});
 			function observePrivacySidebar() {
 				var side = document.getElementById('side') || document.getElementById('pane-side');
 				if (side) privacySidebarObserver.observe(side, { childList: true, subtree: true });
 			}
 			observePrivacySidebar();
+
+			function ensurePrivacyStyle() {
+				if (!document.getElementById('whatsapp-privacy-style')) {
+					var h = document.head || document.documentElement;
+					if (h) h.appendChild(styleEl);
+				}
+			}
+			ensurePrivacyStyle();
 
 			function applyPrivacyMode(active, silent) {
 				isPrivacyActive = !!active;
@@ -2804,19 +2875,20 @@ func getInitScript(ua string) string {
 				var rootEl = document.documentElement;
 				if (!rootEl) return isPrivacyActive;
 				if (isPrivacyActive) {
-					if (!document.getElementById('whatsapp-privacy-style')) {
-						var h = document.head || rootEl;
-						if (h) h.appendChild(styleEl);
-					}
+					ensurePrivacyStyle();
 					rootEl.classList.add('privacy-mode');
 					markPrivacyChatRows();
 					markArchivedPrivacyViews();
 					forceArchivedControlVisible();
 					observePrivacySidebar();
-					if (!silent) showFloatingToast('🔒 Privacy Mode: Enabled');
+					if (!silent) {
+						showFloatingToast((window.isBlurChatListOnly && window.isBlurChatListOnly()) ? '🔒 Chat list blur: on' : '🔒 Privacy Mode: Enabled');
+					}
 				} else {
 					rootEl.classList.remove('privacy-mode');
-					if (!silent) showFloatingToast('🔓 Privacy Mode: Disabled');
+					if (!silent) {
+						showFloatingToast((window.isBlurChatListOnly && window.isBlurChatListOnly()) ? '🔓 Chat list blur: off' : '🔓 Privacy Mode: Disabled');
+					}
 				}
 				return isPrivacyActive;
 			}
@@ -2859,7 +2931,7 @@ func getInitScript(ua string) string {
 				}
 			}
 			setInterval(function() {
-				if (!isPrivacyActive || shouldPauseBackgroundWork()) return;
+				if ((!isPrivacyActive && !(window.isBlurChatListOnly && window.isBlurChatListOnly())) || shouldPauseBackgroundWork()) return;
 				markPrivacyChatRows();
 				markArchivedPrivacyViews();
 				forceArchivedControlVisible();
@@ -2881,6 +2953,39 @@ func getInitScript(ua string) string {
 				window.getBlurAvatarsNative().then(function(on) {
 					if (on && document.documentElement && document.documentElement.classList) {
 						document.documentElement.classList.add('blur-avatars');
+					}
+				}).catch(function() {});
+			}
+
+			// "Blur chat list only" setting: blurs sidebar chat list while keeping
+			// opened chat conversation clear and readable.
+			window.isBlurChatListOnly = function() {
+				return !!(document.documentElement && document.documentElement.classList && document.documentElement.classList.contains('blur-chatlist-only'));
+			};
+			window.setBlurChatListOnly = function(on) {
+				on = !!on;
+				if (document.documentElement && document.documentElement.classList) {
+					if (on) {
+						document.documentElement.classList.add('blur-chatlist-only');
+						ensurePrivacyStyle();
+						markPrivacyChatRows();
+						observePrivacySidebar();
+					} else {
+						document.documentElement.classList.remove('blur-chatlist-only');
+					}
+				}
+				if (window.setBlurChatListOnlyNative) {
+					Promise.resolve(window.setBlurChatListOnlyNative(on)).catch(function() {});
+				}
+				return on;
+			};
+			if (window.getBlurChatListOnlyNative) {
+				window.getBlurChatListOnlyNative().then(function(on) {
+					if (on && document.documentElement && document.documentElement.classList) {
+						document.documentElement.classList.add('blur-chatlist-only');
+						ensurePrivacyStyle();
+						markPrivacyChatRows();
+						observePrivacySidebar();
 					}
 				}).catch(function() {});
 			}
@@ -2929,7 +3034,7 @@ func getInitScript(ua string) string {
 					if (autoLockEnabled) lockOnBlur();
 				} else {
 					if (autoLocked) unlockOnFocus();
-					if (isPrivacyActive) schedulePrivacySidebarRefresh();
+					if (isPrivacyActive || (window.isBlurChatListOnly && window.isBlurChatListOnly())) schedulePrivacySidebarRefresh();
 				}
 			});
 
@@ -4487,6 +4592,10 @@ func getInitScript(ua string) string {
 					'  <span class="wa-text-muted" style="font-size:11px;">Auto-lock when window loses focus (unblurs on focus)</span>' +
 					'</label>' +
 					'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">' +
+					'  <input type="checkbox" id="wa-blur-chatlist-only" style="width:14px;height:14px;accent-color:#00a884;cursor:pointer;margin:0;" />' +
+					'  <span class="wa-text-muted" style="font-size:11px;">Blur chat list only (keep opened chat clear)</span>' +
+					'</label>' +
+					'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">' +
 					'  <input type="checkbox" id="wa-blur-avatars" style="width:14px;height:14px;accent-color:#00a884;cursor:pointer;margin:0;" />' +
 					'  <span class="wa-text-muted" style="font-size:11px;">Also blur profile photos (hover to peek)</span>' +
 					'</label>';
@@ -4861,6 +4970,16 @@ func getInitScript(ua string) string {
 						showFloatingToast(autoLockBox.checked ?
 							'🔒 Privacy auto-lock: on (blurs when window loses focus)' :
 							'🔓 Privacy auto-lock: off');
+					};
+				}
+				var chatListBox = document.getElementById('wa-blur-chatlist-only');
+				if (chatListBox) {
+					chatListBox.checked = !!(window.isBlurChatListOnly && window.isBlurChatListOnly());
+					chatListBox.onchange = function() {
+						if (window.setBlurChatListOnly) window.setBlurChatListOnly(chatListBox.checked);
+						showFloatingToast(chatListBox.checked ?
+							'🔒 Blur chat list only: on (opened chat stays clear)' :
+							'🔓 Blur chat list only: off (full privacy mode)');
 					};
 				}
 				var avatarBox = document.getElementById('wa-blur-avatars');
