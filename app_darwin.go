@@ -42,6 +42,17 @@ static const char* microphonePermissionStatus(void) {
     return mediaPermissionStatus(AVMediaTypeAudio);
 }
 
+static void requestMediaPermissionsNative(void) {
+    if ([AVCaptureDevice respondsToSelector:@selector(requestAccessForMediaType:completionHandler:)]) {
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) {
+            (void)granted;
+        }];
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
+            (void)granted;
+        }];
+    }
+}
+
 static int openMediaPrivacySettings(const char* kind) {
     NSString* section = (kind && strcmp(kind, "microphone") == 0) ?
         @"Privacy_Microphone" : @"Privacy_Camera";
@@ -1395,6 +1406,9 @@ func runApp() {
 		cKind := C.CString(kind)
 		defer C.free(unsafe.Pointer(cKind))
 		return C.openMediaPrivacySettings(cKind) != 0
+	})
+	_ = w.Bind("requestMediaPermissionsNative", func() {
+		C.requestMediaPermissionsNative()
 	})
 
 	// 13. Bind download, preview, and settings handlers

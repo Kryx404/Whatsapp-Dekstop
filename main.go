@@ -5406,6 +5406,9 @@ func getInitScript(ua string) string {
 					document.getElementById('wa-media-permission-retry').onclick = function() {
 						var retry = document.getElementById('wa-media-permission-retry');
 						if (retry) { retry.disabled = true; retry.textContent = 'Checking...'; }
+						if (window.requestMediaPermissionsNative) {
+							try { window.requestMediaPermissionsNative(); } catch (e) {}
+						}
 						var request = navigator.mediaDevices && navigator.mediaDevices.getUserMedia ?
 							navigator.mediaDevices.getUserMedia({ audio: true, video: true }).then(function(stream) {
 								stream.getTracks().forEach(function(track) { track.stop(); });
