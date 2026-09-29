@@ -730,7 +730,9 @@ func getInitScript(ua string) string {
 		}
 
 		function resolveDownloadFilename(filename, contentDisposition) {
-			var candidates = [filenameFromContentDisposition(contentDisposition), lastClickedDocName, filename];
+			var cdName = filenameFromContentDisposition(contentDisposition);
+			var docName = (typeof isRecentPDFIntent === 'function' && isRecentPDFIntent()) ? lastClickedDocName : '';
+			var candidates = [cdName, filename, docName];
 			for (var i = 0; i < candidates.length; i++) {
 				var candidate = cleanDownloadFilename(candidates[i]);
 				if (candidate && !isPlaceholderDownloadFilename(candidate)) return candidate;
@@ -877,6 +879,13 @@ func getInitScript(ua string) string {
 				// same document can be previewed again on purpose.
 				lastDocPreviewName = '';
 				lastDocPreviewAt = 0;
+			} else {
+				// User clicked an image, media viewer, video, or non-document element:
+				// clear stale document name so image downloads never inherit a PDF name.
+				if (e.target && e.target.closest && (e.target.closest('img, video, canvas, [data-testid="media-viewer"], [data-testid*="image"]') || !e.target.closest('[data-testid*="msg-container"]'))) {
+					lastClickedDocName = '';
+					lastDocumentIntentAt = 0;
+				}
 			}
 		}, true);
 
@@ -1875,6 +1884,9 @@ func getInitScript(ua string) string {
 			var url = origCreateObjectURL.apply(this, arguments);
 			try {
 				var bType = (blob && blob.type) ? blob.type.toLowerCase() : '';
+				if (bType.indexOf('image/') === 0 || bType.indexOf('video/') === 0 || bType.indexOf('audio/') === 0) {
+					return url;
+				}
 				var isDocBlob = bType.indexOf('pdf') >= 0 || bType.indexOf('officedocument') >= 0 ||
 					bType.indexOf('msword') >= 0 || bType.indexOf('ms-excel') >= 0 ||
 					bType.indexOf('spreadsheet') >= 0 || bType.indexOf('wordprocessing') >= 0 ||
@@ -3785,6 +3797,17 @@ func getInitScript(ua string) string {
 					})
 					.then(function(blob) {
 						if (!blob) return;
+						var bType = (blob.type || '').toLowerCase();
+						if (bType.indexOf('image/') === 0) {
+							var imgExt = bType.indexOf('png') >= 0 ? '.png' :
+							             bType.indexOf('webp') >= 0 ? '.webp' :
+							             bType.indexOf('gif') >= 0 ? '.gif' : '.jpg';
+							if (filename.toLowerCase().endsWith('.pdf') || !/\.(jpe?g|png|webp|gif)$/i.test(filename)) {
+								filename = filename.replace(/\.[^.]+$/, '') + imgExt;
+								if (!filename.endsWith(imgExt)) filename += imgExt;
+							}
+							shouldAutoOpen = false;
+						}
 						var isPdf = filename.toLowerCase().endsWith('.pdf');
 						var previewBlob = isPdf ? blob.slice(0, blob.size, 'application/pdf') : blob;
 						var ownedBlobUrl = isPdf ? origCreateObjectURL(previewBlob) : '';
@@ -3914,7 +3937,8 @@ func getInitScript(ua string) string {
 				var downloadAttr = this.getAttribute('download');
 				var href = this.href || this.getAttribute('href');
 				if ((downloadAttr !== null || this.download) && href && (href.indexOf('blob:') === 0 || href.indexOf('data:') === 0)) {
-					var name = resolveDownloadFilename(downloadAttr || this.download || lastClickedDocName || 'whatsapp_media', '');
+					var rawName = downloadAttr || this.download || '';
+					var name = resolveDownloadFilename(rawName || (isRecentPDFIntent() ? lastClickedDocName : '') || 'whatsapp_media', '');
 					var isDoc = isDocumentFileName(name);
 					var isExplicit = isRecentExplicitDownload() && !forwardingDocumentDownload && !pendingViewerDownloadClick;
 					var shouldOpen = isDoc && (forwardingDocumentDownload || isRecentPDFIntent() || !isExplicit);
@@ -3939,7 +3963,8 @@ func getInitScript(ua string) string {
 						if ((downloadAttr !== null || target.download) && href && (href.indexOf('blob:') === 0 || href.indexOf('data:') === 0)) {
 							e.preventDefault();
 							e.stopPropagation();
-							var name = resolveDownloadFilename(downloadAttr || target.download || lastClickedDocName || 'whatsapp_media', '');
+							var rawName = downloadAttr || target.download || '';
+							var name = resolveDownloadFilename(rawName || (isRecentPDFIntent() ? lastClickedDocName : '') || 'whatsapp_media', '');
 							var isDoc = isDocumentFileName(name);
 							var isExplicit = isRecentExplicitDownload() && !forwardingDocumentDownload && !pendingViewerDownloadClick;
 							var shouldOpen = isDoc && (forwardingDocumentDownload || isRecentPDFIntent() || !isExplicit);

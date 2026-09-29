@@ -253,3 +253,26 @@ func TestBlurChatListOnlySettingRoundtrip(t *testing.T) {
 		t.Error("expected BlurChatListOnly to be false")
 	}
 }
+
+func TestFixExtensionByContentCorrectsImageSavedAsPDF(t *testing.T) {
+	jpegBytes := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46}
+	pngBytes := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 0x00}
+	webpBytes := []byte("RIFF\x00\x00\x00\x00WEBPVP8 ")
+	gifBytes := []byte("GIF89a\x01\x00\x01\x00")
+
+	if got := fixExtensionByContent("photo.pdf", jpegBytes); got != "photo.jpg" {
+		t.Errorf("expected photo.jpg, got %s", got)
+	}
+	if got := fixExtensionByContent("image.pdf", pngBytes); got != "image.png" {
+		t.Errorf("expected image.png, got %s", got)
+	}
+	if got := fixExtensionByContent("sticker.pdf", webpBytes); got != "sticker.webp" {
+		t.Errorf("expected sticker.webp, got %s", got)
+	}
+	if got := fixExtensionByContent("anim.pdf", gifBytes); got != "anim.gif" {
+		t.Errorf("expected anim.gif, got %s", got)
+	}
+	if got := fixExtensionByContent("document.pdf", []byte("%PDF-1.4")); got != "document.pdf" {
+		t.Errorf("expected document.pdf, got %s", got)
+	}
+}

@@ -165,6 +165,19 @@ func TestDownloadFilenameResolutionAvoidsGenericNames(t *testing.T) {
 	}
 }
 
+func TestImageDownloadDoesNotInheritPDFExtension(t *testing.T) {
+	script := getInitScript("test-agent")
+	for _, want := range []string{
+		"bType.indexOf('image/') === 0",
+		"bType.indexOf('image/') === 0 || bType.indexOf('video/') === 0",
+		"isRecentPDFIntent() ? lastClickedDocName : ''",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("image download guard missing requirement %q", want)
+		}
+	}
+}
+
 func TestOfficeDocumentPreviewSupport(t *testing.T) {
 	script := getInitScript("test-agent")
 

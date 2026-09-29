@@ -450,10 +450,36 @@ func fileMatchesBytes(path string, expected []byte, expectedHash [sha256.Size]by
 	return bytes.Equal(h.Sum(nil), expectedHash[:])
 }
 
+func fixExtensionByContent(filename string, rawBytes []byte) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+
+	// If the file is an image but mistakenly given a non-image extension (like .pdf), fix it
+	if bytes.HasPrefix(rawBytes, []byte("\xFF\xD8\xFF")) {
+		if ext != ".jpg" && ext != ".jpeg" {
+			return base + ".jpg"
+		}
+	} else if bytes.HasPrefix(rawBytes, []byte("\x89PNG\r\n\x1a\n")) {
+		if ext != ".png" {
+			return base + ".png"
+		}
+	} else if len(rawBytes) >= 12 && string(rawBytes[:4]) == "RIFF" && string(rawBytes[8:12]) == "WEBP" {
+		if ext != ".webp" {
+			return base + ".webp"
+		}
+	} else if bytes.HasPrefix(rawBytes, []byte("GIF87a")) || bytes.HasPrefix(rawBytes, []byte("GIF89a")) {
+		if ext != ".gif" {
+			return base + ".gif"
+		}
+	}
+	return filename
+}
+
 func saveDownloadedBytesToDir(targetDir, filename string, rawBytes []byte) (string, error) {
 	downloadFileMu.Lock()
 	defer downloadFileMu.Unlock()
 
+	filename = fixExtensionByContent(filename, rawBytes)
 	ext := filepath.Ext(filename)
 	base := strings.TrimSuffix(filename, ext)
 	if base == "" {
