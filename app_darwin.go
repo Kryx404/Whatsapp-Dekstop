@@ -184,6 +184,9 @@ static void triggerNativeMemoryPurge(void) {
 @implementation WhatsAppAppDelegate
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag {
     if (self.window) {
+        if ([self.window isMiniaturized]) {
+            [self.window deminiaturize:nil];
+        }
         [self.window makeKeyAndOrderFront:nil];
         [NSApp activateIgnoringOtherApps:YES];
     }
@@ -193,13 +196,25 @@ static void triggerNativeMemoryPurge(void) {
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center
        willPresentNotification:(UNNotification *)notification
          withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler {
-    completionHandler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionSound);
+    UNNotificationPresentationOptions options = UNNotificationPresentationOptionSound | UNNotificationPresentationOptionBadge;
+    if (@available(macOS 11.0, *)) {
+        options |= UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList;
+    } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        options |= UNNotificationPresentationOptionAlert;
+#pragma clang diagnostic pop
+    }
+    completionHandler(options);
 }
 
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center
  didReceiveNotificationResponse:(UNNotificationResponse *)response
           withCompletionHandler:(void (^)(void))completionHandler {
     if (self.window) {
+        if ([self.window isMiniaturized]) {
+            [self.window deminiaturize:nil];
+        }
         [self.window makeKeyAndOrderFront:nil];
         [NSApp activateIgnoringOtherApps:YES];
     }
@@ -215,23 +230,55 @@ static BOOL nativeMacNotificationsAvailable(void) {
     return bundle.bundleURL != nil && bundle.bundleIdentifier.length > 0;
 }
 
+static void postMacAppleScriptNotification(NSString *title, NSString *body) {
+    @autoreleasepool {
+        if (!title || [title length] == 0) {
+            title = @"WhatsApp Desk";
+        }
+        if (!body) {
+            body = @"";
+        }
+        NSString *escapedTitle = [[title stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+        NSString *escapedBody = [[[[body stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
+                                      stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""]
+                                      stringByReplacingOccurrencesOfString:@"\r" withString:@" "]
+                                      stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+        NSString *scriptSource = [NSString stringWithFormat:@"display notification \"%@\" with title \"%@\" sound name \"default\"", escapedBody, escapedTitle];
+        NSAppleScript *appleScript = [[NSAppleScript alloc] initWithSource:scriptSource];
+        [appleScript executeAndReturnError:nil];
+    }
+}
+
 static void postNativeMacNotification(const char* titleStr, const char* bodyStr) {
     @autoreleasepool {
-        if (!nativeMacNotificationsAvailable()) return;
-        UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
-        if (titleStr && strlen(titleStr) > 0) {
-            content.title = [NSString stringWithUTF8String:titleStr];
-        } else {
-            content.title = @"WhatsApp Desk";
+        NSString *title = (titleStr && strlen(titleStr) > 0) ? [NSString stringWithUTF8String:titleStr] : @"WhatsApp Desk";
+        NSString *body = (bodyStr && strlen(bodyStr) > 0) ? [NSString stringWithUTF8String:bodyStr] : @"";
+
+        if (!nativeMacNotificationsAvailable()) {
+            postMacAppleScriptNotification(title, body);
+            return;
         }
-        if (bodyStr && strlen(bodyStr) > 0) {
-            content.body = [NSString stringWithUTF8String:bodyStr];
-        }
-        content.sound = [UNNotificationSound defaultSound];
-        UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:[[NSUUID UUID] UUIDString]
-                                                                                content:content
-                                                                                trigger:nil];
-        [[UNUserNotificationCenter currentNotificationCenter] addNotificationRequest:request withCompletionHandler:nil];
+
+        UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+        [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings * _Nonnull settings) {
+            if (settings.authorizationStatus == UNAuthorizationStatusDenied) {
+                postMacAppleScriptNotification(title, body);
+                return;
+            }
+
+            UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
+            content.title = title;
+            content.body = body;
+            content.sound = [UNNotificationSound defaultSound];
+            UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:[[NSUUID UUID] UUIDString]
+                                                                                    content:content
+                                                                                    trigger:nil];
+            [center addNotificationRequest:request withCompletionHandler:^(NSError * _Nullable error) {
+                if (error != nil) {
+                    postMacAppleScriptNotification(title, body);
+                }
+            }];
+        }];
     }
 }
 

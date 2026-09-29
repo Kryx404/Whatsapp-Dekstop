@@ -683,6 +683,31 @@ func TestNotificationToggleGatesNativeNotificationsAcrossPlatforms(t *testing.T)
 	}
 }
 
+func TestNotificationBridgePermissionsAndDispatch(t *testing.T) {
+	script := getInitScript("test-agent")
+	for _, want := range []string{
+		"desc.name === 'notifications'",
+		"WAClassNotification",
+		"ServiceWorkerRegistration.prototype.showNotification",
+		"Object.defineProperty(window, 'Notification'",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("init script missing notification requirement %q", want)
+		}
+	}
+}
+
+func TestDarwinNotificationHasAppleScriptFallback(t *testing.T) {
+	source, err := os.ReadFile("app_darwin.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(source)
+	if !strings.Contains(content, "postMacAppleScriptNotification") {
+		t.Error("app_darwin.go must include AppleScript fallback for environments without bundle identifier")
+	}
+}
+
 func TestAllPlatformsApplySavedThemeToNativeWindow(t *testing.T) {
 	cases := []struct {
 		file   string

@@ -441,6 +441,9 @@ func ensureAppIconFile(dir string) string {
 }
 
 func showNativeNotification(title, message, iconPath, exePath string) {
+	if title == "" {
+		title = "WhatsApp Desk"
+	}
 	notification := toast.Notification{
 		AppID:               "WhatsApp Desk",
 		Title:               title,
