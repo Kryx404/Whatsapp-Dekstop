@@ -613,6 +613,49 @@ func TestBlurChatListOnlyInvariants(t *testing.T) {
 	}
 }
 
+func TestAppLockInvariants(t *testing.T) {
+	script := getInitScript("test-agent")
+	for _, want := range []string{
+		"waRunModule('app-lock'",
+		"window.isAppLocked",
+		"window.lockApp",
+		"window.promptConfigureAppLock",
+		"wa-app-lock-screen",
+		"wa-lock-pin-input",
+		"wa-lock-unlock-btn",
+		"wa-action-toggle-lock",
+		"wa-action-config-lock",
+		"wa-lock-on-focus-loss",
+		"verifyAppLockPasscodeNative",
+		"setAppLockPasscodeNative",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("app-lock module missing requirement %q", want)
+		}
+	}
+
+	for _, platformFile := range []string{"app_darwin.go", "app_windows.go"} {
+		source, err := os.ReadFile(platformFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := string(source)
+		for _, bridge := range []string{
+			"getAppLockEnabledNative",
+			"setAppLockEnabledNative",
+			"getAppLockOnFocusLossNative",
+			"setAppLockOnFocusLossNative",
+			"hasAppLockPasscodeNative",
+			"verifyAppLockPasscodeNative",
+			"setAppLockPasscodeNative",
+		} {
+			if !strings.Contains(content, bridge) {
+				t.Errorf("%s missing native bridge binding %q", platformFile, bridge)
+			}
+		}
+	}
+}
+
 func TestThemeReapplyIsBoundedAndAvoidsObserverFeedbackLoop(t *testing.T) {
 	script := getInitScript("test-agent")
 	for _, want := range []string{

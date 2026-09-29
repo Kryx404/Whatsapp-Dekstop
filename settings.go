@@ -28,6 +28,9 @@ type AppSettings struct {
 	SpellCheckLang       string `json:"spell_check_lang"`
 	BlurAvatars          bool   `json:"blur_avatars"`
 	BlurChatListOnly     bool   `json:"blur_chatlist_only"`
+	AppLockEnabled       bool   `json:"app_lock_enabled"`
+	AppLockPasscodeHash  string `json:"app_lock_hash"`
+	AppLockOnFocusLoss   bool   `json:"app_lock_on_focus_loss"`
 	// LastCrashNotified is the unix time of the crash log last surfaced to
 	// the user via the issue reporter, so the startup nudge fires once.
 	LastCrashNotified int64 `json:"last_crash_notified"`
@@ -200,6 +203,70 @@ func setBlurChatListOnly(on bool) bool {
 	s.BlurChatListOnly = on
 	_ = saveSettings(s)
 	return s.BlurChatListOnly
+}
+
+func hashPasscode(passcode string) string {
+	if passcode == "" {
+		return ""
+	}
+	h := sha256.Sum256([]byte("wa-desk-lock:" + passcode))
+	return fmt.Sprintf("%x", h)
+}
+
+func getAppLockEnabled() bool {
+	s := loadSettings()
+	return s.AppLockEnabled && s.AppLockPasscodeHash != ""
+}
+
+func setAppLockEnabled(on bool) bool {
+	s := loadSettings()
+	if on && s.AppLockPasscodeHash == "" {
+		return false
+	}
+	s.AppLockEnabled = on
+	_ = saveSettings(s)
+	return s.AppLockEnabled
+}
+
+func getAppLockOnFocusLoss() bool {
+	return loadSettings().AppLockOnFocusLoss
+}
+
+func setAppLockOnFocusLoss(on bool) bool {
+	s := loadSettings()
+	s.AppLockOnFocusLoss = on
+	_ = saveSettings(s)
+	return s.AppLockOnFocusLoss
+}
+
+func hasAppLockPasscode() bool {
+	return loadSettings().AppLockPasscodeHash != ""
+}
+
+func verifyAppLockPasscode(passcode string) bool {
+	s := loadSettings()
+	if s.AppLockPasscodeHash == "" {
+		return true
+	}
+	return s.AppLockPasscodeHash == hashPasscode(passcode)
+}
+
+func setAppLockPasscode(oldPasscode, newPasscode string) bool {
+	s := loadSettings()
+	if s.AppLockPasscodeHash != "" {
+		if s.AppLockPasscodeHash != hashPasscode(oldPasscode) {
+			return false
+		}
+	}
+	if newPasscode == "" {
+		s.AppLockPasscodeHash = ""
+		s.AppLockEnabled = false
+	} else {
+		s.AppLockPasscodeHash = hashPasscode(newPasscode)
+		s.AppLockEnabled = true
+	}
+	_ = saveSettings(s)
+	return true
 }
 
 // findDownloadedFile reports the first regular file matching filename anywhere

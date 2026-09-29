@@ -3221,6 +3221,329 @@ func getInitScript(ua string) string {
 			}, true);
 		});
 
+		// App Lock (PIN / Passcode Protection)
+		waRunModule('app-lock', function() {
+			var isLocked = false;
+			var hasPasscode = false;
+			var isLockEnabled = false;
+			var isFocusLossLock = false;
+
+			function refreshLockConfig() {
+				if (!window.getAppLockEnabledNative) return Promise.resolve();
+				return Promise.all([
+					Promise.resolve(window.getAppLockEnabledNative()),
+					Promise.resolve(window.hasAppLockPasscodeNative()),
+					Promise.resolve(window.getAppLockOnFocusLossNative())
+				]).then(function(res) {
+					isLockEnabled = !!res[0];
+					hasPasscode = !!res[1];
+					isFocusLossLock = !!res[2];
+					return { enabled: isLockEnabled, hasPasscode: hasPasscode, focusLoss: isFocusLossLock };
+				}).catch(function() {});
+			}
+
+			window.isAppLocked = function() {
+				return isLocked;
+			};
+			window.hasAppLockPasscode = function() {
+				return hasPasscode;
+			};
+			window.isAppLockEnabled = function() {
+				return isLockEnabled;
+			};
+			window.isAppLockOnFocusLoss = function() {
+				return isFocusLossLock;
+			};
+			window.refreshAppLockState = refreshLockConfig;
+
+			function mountLockScreen() {
+				if (document.getElementById('wa-app-lock-screen')) {
+					var existingInput = document.getElementById('wa-lock-pin-input');
+					if (existingInput) existingInput.focus();
+					return;
+				}
+				isLocked = true;
+
+				var screen = document.createElement('div');
+				screen.id = 'wa-app-lock-screen';
+				screen.style.cssText = 'position:fixed;inset:0;background:#111b21;z-index:2147483646;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#e9edef;user-select:none;';
+
+				var card = document.createElement('div');
+				card.style.cssText = 'width:340px;max-width:92vw;background:#202c33;border-radius:12px;padding:32px 28px 28px;box-sizing:border-box;box-shadow:0 12px 36px rgba(0,0,0,0.5);display:flex;flex-direction:column;align-items:center;text-align:center;border:1px solid rgba(255,255,255,0.08);';
+
+				var iconWrap = document.createElement('div');
+				iconWrap.style.cssText = 'width:56px;height:56px;border-radius:50%;background:rgba(0,168,132,0.15);color:#00a884;display:flex;align-items:center;justify-content:center;font-size:26px;margin-bottom:16px;';
+				iconWrap.innerHTML = '🔒';
+
+				var title = document.createElement('h2');
+				title.style.cssText = 'margin:0 0 6px;font-size:18px;font-weight:600;color:#e9edef;';
+				title.textContent = 'WhatsApp Desk';
+
+				var subtitle = document.createElement('p');
+				subtitle.style.cssText = 'margin:0 0 20px;font-size:12.5px;color:#8696a0;';
+				subtitle.textContent = 'Aplikasi terkunci. Masukkan PIN Anda.';
+
+				var input = document.createElement('input');
+				input.id = 'wa-lock-pin-input';
+				input.type = 'password';
+				input.maxLength = 32;
+				input.placeholder = '••••';
+				input.autocomplete = 'off';
+				input.style.cssText = 'width:100%;height:44px;background:#111b21;border:1px solid #33434c;border-radius:8px;padding:0 12px;font-size:18px;letter-spacing:4px;text-align:center;color:#e9edef;box-sizing:border-box;outline:none;transition:border-color 0.15s ease;';
+
+				input.onfocus = function() { input.style.borderColor = '#00a884'; };
+				input.onblur = function() { input.style.borderColor = '#33434c'; };
+
+				var errorMsg = document.createElement('div');
+				errorMsg.id = 'wa-lock-error-msg';
+				errorMsg.style.cssText = 'color:#f15c6d;font-size:11.5px;min-height:18px;margin-top:8px;font-weight:500;';
+
+				var submitBtn = document.createElement('button');
+				submitBtn.id = 'wa-lock-unlock-btn';
+				submitBtn.textContent = 'Buka Kunci';
+				submitBtn.style.cssText = 'width:100%;height:40px;background:#00a884;color:#111b21;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:14px;transition:opacity 0.15s ease;';
+
+				function doUnlock() {
+					var pin = input.value;
+					if (!pin) {
+						errorMsg.textContent = 'Masukkan PIN terlebih dahulu';
+						input.focus();
+						return;
+					}
+					if (!window.verifyAppLockPasscodeNative) {
+						if (screen.parentNode) screen.parentNode.removeChild(screen);
+						isLocked = false;
+						return;
+					}
+					Promise.resolve(window.verifyAppLockPasscodeNative(pin)).then(function(valid) {
+						if (valid) {
+							isLocked = false;
+							if (screen.parentNode) screen.parentNode.removeChild(screen);
+							if (typeof window.showFloatingToast === 'function') {
+								window.showFloatingToast('🔓 WhatsApp Desk terbuka');
+							}
+						} else {
+							errorMsg.textContent = 'PIN salah. Coba lagi.';
+							input.value = '';
+							input.style.borderColor = '#f15c6d';
+							input.focus();
+						}
+					}).catch(function() {
+						errorMsg.textContent = 'Gagal memverifikasi PIN.';
+					});
+				}
+
+				submitBtn.onclick = doUnlock;
+				input.onkeydown = function(e) {
+					if (e.key === 'Enter') {
+						e.preventDefault();
+						doUnlock();
+					}
+				};
+
+				card.appendChild(iconWrap);
+				card.appendChild(title);
+				card.appendChild(subtitle);
+				card.appendChild(input);
+				card.appendChild(errorMsg);
+				card.appendChild(submitBtn);
+				screen.appendChild(card);
+
+				var mountTarget = document.body || document.documentElement;
+				if (mountTarget) mountTarget.appendChild(screen);
+
+				setTimeout(function() { input.focus(); }, 50);
+			}
+
+			window.lockApp = function() {
+				refreshLockConfig().then(function() {
+					if (hasPasscode) {
+						mountLockScreen();
+					}
+				});
+			};
+
+			// Prevent hotkeys from triggering actions behind lock screen
+			window.addEventListener('keydown', function(e) {
+				if (isLocked) {
+					if (e.target && e.target.id === 'wa-lock-pin-input') {
+						return;
+					}
+					e.preventDefault();
+					e.stopPropagation();
+					var inp = document.getElementById('wa-lock-pin-input');
+					if (inp) inp.focus();
+				}
+			}, true);
+
+			// Focus loss lock
+			window.addEventListener('blur', function() {
+				if (isLockEnabled && isFocusLossLock && !isLocked && hasPasscode) {
+					mountLockScreen();
+				}
+			});
+			document.addEventListener('visibilitychange', function() {
+				if (document.hidden && isLockEnabled && isFocusLossLock && !isLocked && hasPasscode) {
+					mountLockScreen();
+				}
+			});
+
+			// Shortcut: Cmd+L (Mac) / Ctrl+L (Windows)
+			window.addEventListener('keydown', function(e) {
+				if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === 'l' || e.key === 'L')) {
+					e.preventDefault();
+					e.stopPropagation();
+					if (isLocked) return;
+					refreshLockConfig().then(function() {
+						if (hasPasscode) {
+							mountLockScreen();
+						} else {
+							if (typeof window.showSettingsModal === 'function') {
+								window.showSettingsModal();
+							}
+							if (typeof window.promptConfigureAppLock === 'function') {
+								window.promptConfigureAppLock();
+							}
+						}
+					});
+				}
+			}, true);
+
+			// Configure PIN Dialog (Set PIN / Change PIN / Disable PIN)
+			window.promptConfigureAppLock = function(onDone) {
+				if (document.getElementById('wa-pin-config-modal')) return;
+				refreshLockConfig().then(function() {
+					var modalOverlay = document.createElement('div');
+					modalOverlay.id = 'wa-pin-config-modal';
+					modalOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(8,15,19,.75);z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#e9edef;';
+
+					var box = document.createElement('div');
+					box.style.cssText = 'width:360px;max-width:94vw;background:#202c33;border-radius:10px;padding:24px;box-sizing:border-box;border:1px solid rgba(255,255,255,0.1);box-shadow:0 12px 32px rgba(0,0,0,.45);';
+
+					var heading = document.createElement('h3');
+					heading.style.cssText = 'margin:0 0 6px;font-size:15px;font-weight:600;color:#e9edef;';
+					heading.textContent = hasPasscode ? 'Ubah / Hapus PIN App Lock' : 'Atur PIN App Lock';
+
+					var desc = document.createElement('p');
+					desc.style.cssText = 'margin:0 0 16px;font-size:11.5px;color:#8696a0;';
+					desc.textContent = hasPasscode ? 'Masukkan PIN lama dan PIN baru (kosongkan PIN baru untuk menonaktifkan PIN).' : 'Masukkan PIN baru untuk mengunci aplikasi.';
+
+					var formWrap = document.createElement('div');
+					formWrap.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
+
+					var oldInput = null;
+					if (hasPasscode) {
+						var oldLbl = document.createElement('label');
+						oldLbl.style.cssText = 'font-size:11px;color:#8696a0;display:block;margin-bottom:2px;';
+						oldLbl.textContent = 'PIN Lama:';
+						oldInput = document.createElement('input');
+						oldInput.id = 'wa-pin-old-input';
+						oldInput.type = 'password';
+						oldInput.maxLength = 32;
+						oldInput.placeholder = 'PIN lama saat ini...';
+						oldInput.style.cssText = 'width:100%;height:36px;background:#111b21;border:1px solid #33434c;border-radius:6px;padding:0 10px;font-size:13px;color:#e9edef;box-sizing:border-box;outline:none;';
+						formWrap.appendChild(oldLbl);
+						formWrap.appendChild(oldInput);
+					}
+
+					var newLbl = document.createElement('label');
+					newLbl.style.cssText = 'font-size:11px;color:#8696a0;display:block;margin-bottom:2px;';
+					newLbl.textContent = hasPasscode ? 'PIN Baru (kosongkan untuk hapus):' : 'PIN Baru:';
+					var newInput = document.createElement('input');
+					newInput.id = 'wa-pin-new-input';
+					newInput.type = 'password';
+					newInput.maxLength = 32;
+					newInput.placeholder = hasPasscode ? 'Kosongkan jika ingin menghapus...' : 'Ketik PIN baru...';
+					newInput.style.cssText = 'width:100%;height:36px;background:#111b21;border:1px solid #33434c;border-radius:6px;padding:0 10px;font-size:13px;color:#e9edef;box-sizing:border-box;outline:none;';
+					formWrap.appendChild(newLbl);
+					formWrap.appendChild(newInput);
+
+					var confirmLbl = document.createElement('label');
+					confirmLbl.style.cssText = 'font-size:11px;color:#8696a0;display:block;margin-bottom:2px;';
+					confirmLbl.textContent = 'Konfirmasi PIN Baru:';
+					var confirmInput = document.createElement('input');
+					confirmInput.id = 'wa-pin-confirm-input';
+					confirmInput.type = 'password';
+					confirmInput.maxLength = 32;
+					confirmInput.placeholder = 'Ulangi PIN baru...';
+					confirmInput.style.cssText = 'width:100%;height:36px;background:#111b21;border:1px solid #33434c;border-radius:6px;padding:0 10px;font-size:13px;color:#e9edef;box-sizing:border-box;outline:none;';
+					formWrap.appendChild(confirmLbl);
+					formWrap.appendChild(confirmInput);
+
+					var errDiv = document.createElement('div');
+					errDiv.style.cssText = 'color:#f15c6d;font-size:11.5px;min-height:16px;margin-top:6px;';
+
+					var actions = document.createElement('div');
+					actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;';
+
+					var cancelBtn = document.createElement('button');
+					cancelBtn.textContent = 'Batal';
+					cancelBtn.style.cssText = 'background:transparent;border:1px solid rgba(255,255,255,0.15);color:#8696a0;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;';
+					cancelBtn.onclick = function() {
+						modalOverlay.parentNode.removeChild(modalOverlay);
+					};
+
+					var saveBtn = document.createElement('button');
+					saveBtn.textContent = 'Simpan';
+					saveBtn.style.cssText = 'background:#00a884;border:none;color:#111b21;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;';
+					saveBtn.onclick = function() {
+						var oldVal = oldInput ? oldInput.value : '';
+						var newVal = newInput.value;
+						var confVal = confirmInput.value;
+
+						if (newVal !== confVal) {
+							errDiv.textContent = 'Konfirmasi PIN tidak cocok!';
+							return;
+						}
+						if (!hasPasscode && !newVal) {
+							errDiv.textContent = 'PIN baru tidak boleh kosong!';
+							return;
+						}
+						if (!window.setAppLockPasscodeNative) {
+							errDiv.textContent = 'Bridge native tidak tersedia';
+							return;
+						}
+						Promise.resolve(window.setAppLockPasscodeNative(oldVal, newVal)).then(function(ok) {
+							if (ok) {
+								modalOverlay.parentNode.removeChild(modalOverlay);
+								refreshLockConfig().then(function() {
+									if (typeof onDone === 'function') onDone();
+									if (typeof window.showFloatingToast === 'function') {
+										window.showFloatingToast(newVal ? '🔒 PIN App Lock berhasil disimpan!' : '🔓 PIN App Lock dinonaktifkan');
+									}
+								});
+							} else {
+								errDiv.textContent = 'PIN lama salah!';
+							}
+						}).catch(function() {
+							errDiv.textContent = 'Terjadi kesalahan sistem';
+						});
+					};
+
+					actions.appendChild(cancelBtn);
+					actions.appendChild(saveBtn);
+
+					box.appendChild(heading);
+					box.appendChild(desc);
+					box.appendChild(formWrap);
+					box.appendChild(errDiv);
+					box.appendChild(actions);
+					modalOverlay.appendChild(box);
+
+					document.body.appendChild(modalOverlay);
+					if (oldInput) oldInput.focus();
+					else newInput.focus();
+				});
+			};
+
+			// Initial startup check
+			refreshLockConfig().then(function(cfg) {
+				if (cfg && cfg.enabled && cfg.hasPasscode) {
+					mountLockScreen();
+				}
+			});
+		});
+
 		// Capture diagnostics (issue #57: "the other person can't hear our voice
 		// clearly, it's broken like a robot").
 		//
@@ -4767,6 +5090,31 @@ func getInitScript(ua string) string {
 					'</div>';
 				quickGrid.appendChild(cardAuto);
 
+				// Card 5: App Lock (PIN / Passcode)
+				var cardLock = document.createElement('div');
+				cardLock.className = 'wa-modal-card';
+				cardLock.style.cssText = 'border-radius:0;border-width:0 0 1px;border-style:solid;padding:12px 0;display:flex;flex-direction:column;gap:8px;';
+				cardLock.innerHTML = '' +
+					'<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">' +
+					'  <div style="flex:1;min-width:0;">' +
+					'    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">' +
+					'      <strong class="wa-text-primary" style="font-size:12.5px;">App Lock (PIN)</strong>' +
+					'      <span id="wa-badge-lock" style="font-size:10px;padding:1px 5px;border-radius:4px;font-weight:600;">...</span>' +
+					'    </div>' +
+					'    <div class="wa-text-muted" style="font-size:11px;">Lock application with a PIN. Unlock requires your PIN.</div>' +
+					'  </div>' +
+					'  <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:160px;flex-shrink:0;">' +
+					'    <span class="wa-text-muted" style="font-size:10px;font-family:monospace;">' + (isMac ? 'Cmd' : 'Ctrl') + '+L</span>' +
+					'    <button id="wa-action-toggle-lock" class="wa-card-btn" style="min-width:68px;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border-width:1px;border-style:solid;">Lock</button>' +
+					'    <button id="wa-action-config-lock" class="wa-card-btn" style="min-width:64px;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border-width:1px;border-style:solid;">Set PIN</button>' +
+					'  </div>' +
+					'</div>' +
+					'<label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">' +
+					'  <input type="checkbox" id="wa-lock-on-focus-loss" style="width:14px;height:14px;accent-color:#00a884;cursor:pointer;margin:0;" />' +
+					'  <span class="wa-text-muted" style="font-size:11px;">Auto-lock with PIN when window loses focus</span>' +
+					'</label>';
+				quickGrid.appendChild(cardLock);
+
 				modal.appendChild(quickGrid);
 
 				// Section 2: Download Folder Settings
@@ -4994,6 +5342,36 @@ func getInitScript(ua string) string {
 						btnAuto.textContent = autoActive ? 'Disable' : 'Enable';
 					}
 
+					var badgeLock = document.getElementById('wa-badge-lock');
+					var btnToggleLock = document.getElementById('wa-action-toggle-lock');
+					var btnConfigLock = document.getElementById('wa-action-config-lock');
+					var lockFocusBox = document.getElementById('wa-lock-on-focus-loss');
+					if (window.hasAppLockPasscodeNative && window.getAppLockEnabledNative) {
+						Promise.all([
+							Promise.resolve(window.hasAppLockPasscodeNative()),
+							Promise.resolve(window.getAppLockEnabledNative()),
+							Promise.resolve(window.getAppLockOnFocusLossNative())
+						]).then(function(res) {
+							var hasPin = !!res[0];
+							var enabled = !!res[1];
+							var focusLoss = !!res[2];
+							if (badgeLock) {
+								badgeLock.textContent = hasPin ? (enabled ? 'Enabled' : 'Disabled') : 'Not Set';
+								badgeLock.style.background = enabled ? (isThemeDark ? 'rgba(0,168,132,0.15)' : 'rgba(0,128,105,0.15)') : 'transparent';
+								badgeLock.style.color = enabled ? accent : '#8696a0';
+							}
+							if (btnToggleLock) {
+								btnToggleLock.textContent = hasPin ? (enabled ? 'Lock Now' : 'Enable') : 'Set PIN';
+							}
+							if (btnConfigLock) {
+								btnConfigLock.textContent = hasPin ? 'Change PIN' : 'Set PIN';
+							}
+							if (lockFocusBox) {
+								lockFocusBox.checked = focusLoss;
+							}
+						}).catch(function() {});
+					}
+
 					window.syncModalTheme(isThemeDark);
 				}
 				function mediaPermissionText(status) {
@@ -5118,6 +5496,38 @@ func getInitScript(ua string) string {
 						window.toggleAutoStart().then(function() { updateBadges(); });
 					}
 				};
+				document.getElementById('wa-action-toggle-lock').onclick = function() {
+					if (!window.hasAppLockPasscodeNative) return;
+					Promise.resolve(window.hasAppLockPasscodeNative()).then(function(hasPin) {
+						if (!hasPin) {
+							if (window.promptConfigureAppLock) {
+								window.promptConfigureAppLock(updateBadges);
+							}
+						} else {
+							closeSettings();
+							if (window.lockApp) window.lockApp();
+						}
+					});
+				};
+				document.getElementById('wa-action-config-lock').onclick = function() {
+					if (window.promptConfigureAppLock) {
+						window.promptConfigureAppLock(updateBadges);
+					}
+				};
+				var lockFocusBoxEl = document.getElementById('wa-lock-on-focus-loss');
+				if (lockFocusBoxEl) {
+					lockFocusBoxEl.onchange = function() {
+						if (window.setAppLockOnFocusLossNative) {
+							window.setAppLockOnFocusLossNative(lockFocusBoxEl.checked);
+							if (typeof window.refreshAppLockState === 'function') {
+								window.refreshAppLockState();
+							}
+							showFloatingToast(lockFocusBoxEl.checked ?
+								'🔒 Auto-lock saat jendela kehilangan fokus: Aktif' :
+								'🔓 Auto-lock saat jendela kehilangan fokus: Nonaktif');
+						}
+					};
+				}
 
 				document.getElementById('wa-btn-check-updates-modal').onclick = function() {
 					closeSettings();
@@ -5140,6 +5550,7 @@ func getInitScript(ua string) string {
 					var modifier = isMac ? 'Cmd' : 'Ctrl';
 					shortcutsList.innerHTML =
 						'<div><strong class="wa-text-primary">' + modifier + '+,</strong> &mdash; Settings &amp; Controls</div>' +
+						'<div><strong class="wa-text-primary">' + modifier + '+L</strong> &mdash; Lock application with PIN</div>' +
 						'<div><strong class="wa-text-primary">' + modifier + '+Shift+D</strong> &mdash; Open downloads folder</div>' +
 						'<div><strong class="wa-text-primary">' + modifier + '+Shift+U</strong> &mdash; Check for updates</div>' +
 						'<div><strong class="wa-text-primary">' + modifier + '+Shift+P / T / M / S</strong> &mdash; Privacy / on top / mute / startup</div>' +

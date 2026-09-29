@@ -1508,6 +1508,27 @@ func runApp() {
 	_ = w.Bind("setBlurChatListOnlyNative", func(on bool) bool {
 		return setBlurChatListOnly(on)
 	})
+	_ = w.Bind("getAppLockEnabledNative", func() bool {
+		return getAppLockEnabled()
+	})
+	_ = w.Bind("setAppLockEnabledNative", func(on bool) bool {
+		return setAppLockEnabled(on)
+	})
+	_ = w.Bind("getAppLockOnFocusLossNative", func() bool {
+		return getAppLockOnFocusLoss()
+	})
+	_ = w.Bind("setAppLockOnFocusLossNative", func(on bool) bool {
+		return setAppLockOnFocusLoss(on)
+	})
+	_ = w.Bind("hasAppLockPasscodeNative", func() bool {
+		return hasAppLockPasscode()
+	})
+	_ = w.Bind("verifyAppLockPasscodeNative", func(passcode string) bool {
+		return verifyAppLockPasscode(passcode)
+	})
+	_ = w.Bind("setAppLockPasscodeNative", func(oldPasscode, newPasscode string) bool {
+		return setAppLockPasscode(oldPasscode, newPasscode)
+	})
 	_ = w.Bind("getPendingCrashNative", func() string {
 		return pendingCrashReport()
 	})

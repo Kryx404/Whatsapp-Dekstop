@@ -276,3 +276,70 @@ func TestFixExtensionByContentCorrectsImageSavedAsPDF(t *testing.T) {
 		t.Errorf("expected document.pdf, got %s", got)
 	}
 }
+
+func TestAppLockSettingsAndPasscode(t *testing.T) {
+	origEnabled := getAppLockEnabled()
+	origFocusLoss := getAppLockOnFocusLoss()
+	origPasscodeHash := loadSettings().AppLockPasscodeHash
+	defer func() {
+		s := loadSettings()
+		s.AppLockEnabled = origEnabled
+		s.AppLockOnFocusLoss = origFocusLoss
+		s.AppLockPasscodeHash = origPasscodeHash
+		_ = saveSettings(s)
+	}()
+
+	// Reset state
+	setAppLockPasscode("", "")
+	if hasAppLockPasscode() {
+		t.Error("expected hasAppLockPasscode to be false initially")
+	}
+
+	// Cannot enable without passcode
+	if setAppLockEnabled(true) {
+		t.Error("expected setAppLockEnabled to fail without passcode")
+	}
+
+	// Set new passcode
+	if !setAppLockPasscode("", "1234") {
+		t.Error("failed to set new passcode")
+	}
+	if !hasAppLockPasscode() {
+		t.Error("expected hasAppLockPasscode to be true")
+	}
+	if !verifyAppLockPasscode("1234") {
+		t.Error("expected verifyAppLockPasscode with correct pin to return true")
+	}
+	if verifyAppLockPasscode("9999") {
+		t.Error("expected verifyAppLockPasscode with wrong pin to return false")
+	}
+
+	// Change passcode requires old passcode
+	if setAppLockPasscode("wrong", "5678") {
+		t.Error("expected changing passcode with wrong old passcode to fail")
+	}
+	if !setAppLockPasscode("1234", "5678") {
+		t.Error("expected changing passcode with correct old passcode to succeed")
+	}
+	if !verifyAppLockPasscode("5678") {
+		t.Error("expected verifyAppLockPasscode with updated pin to return true")
+	}
+
+	// Focus loss setting
+	setAppLockOnFocusLoss(true)
+	if !getAppLockOnFocusLoss() {
+		t.Error("expected AppLockOnFocusLoss to be true")
+	}
+	setAppLockOnFocusLoss(false)
+	if getAppLockOnFocusLoss() {
+		t.Error("expected AppLockOnFocusLoss to be false")
+	}
+
+	// Clear passcode
+	if !setAppLockPasscode("5678", "") {
+		t.Error("failed to clear passcode")
+	}
+	if hasAppLockPasscode() {
+		t.Error("expected hasAppLockPasscode to be false after clear")
+	}
+}
