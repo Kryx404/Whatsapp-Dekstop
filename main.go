@@ -447,6 +447,9 @@ func getInitScript(ua string) string {
 				if (notificationsStateReady && notificationsEnabled && window.sendNativeNotification) {
 					window.sendNativeNotification(notifTitle, body);
 				}
+				if (typeof window.__waOnNotificationDispatched === 'function') {
+					try { window.__waOnNotificationDispatched(); } catch (e) {}
+				}
 			}
 
 			function WAClassNotification(title, options) {
@@ -2012,29 +2015,87 @@ func getInitScript(ua string) string {
 			});
 		});
 
-		// Dock Badge Unread Count Synchronizer
+		// Dock Badge Unread Count Synchronizer (shows new notifications received while unfocused)
 		waRunModule('dock-badge', function() {
+			var isFocused = document.hasFocus ? document.hasFocus() : !document.hidden;
+			var unfocusedCount = 0;
 			var lastBadge = null;
-			function syncBadge() {
+
+			function parseTitleUnread() {
 				var title = document.title || '';
 				var match = title.match(/\(([^)]+)\)/);
-				var badge = match ? match[1] : '';
-				if (badge !== lastBadge) {
-					lastBadge = badge;
+				if (!match) return 0;
+				var num = parseInt(match[1], 10);
+				return isNaN(num) ? 0 : num;
+			}
+			var baseTitleUnread = parseTitleUnread();
+
+			function updateBadgeDisplay(val) {
+				var badgeStr = val > 0 ? String(val) : '';
+				if (badgeStr !== lastBadge) {
+					lastBadge = badgeStr;
 					if (window.updateDockBadge) {
-						window.updateDockBadge(badge);
+						window.updateDockBadge(badgeStr);
 					}
 				}
 			}
+
+			function onWindowFocused() {
+				isFocused = true;
+				unfocusedCount = 0;
+				baseTitleUnread = parseTitleUnread();
+				updateBadgeDisplay(0);
+			}
+
+			function onWindowBlur() {
+				isFocused = false;
+				unfocusedCount = 0;
+				baseTitleUnread = parseTitleUnread();
+				updateBadgeDisplay(0);
+			}
+
+			window.addEventListener('focus', onWindowFocused);
+			window.addEventListener('blur', onWindowBlur);
+			document.addEventListener('visibilitychange', function() {
+				if (document.hidden) {
+					onWindowBlur();
+				} else {
+					onWindowFocused();
+				}
+			});
+
+			function onNewNotification() {
+				if (isFocused && document.hasFocus && document.hasFocus()) return;
+				unfocusedCount++;
+				updateBadgeDisplay(unfocusedCount);
+			}
+
+			window.__waOnNotificationDispatched = onNewNotification;
+
+			function syncBadge() {
+				if (isFocused && document.hasFocus && document.hasFocus()) {
+					updateBadgeDisplay(0);
+					return;
+				}
+				var currentUnread = parseTitleUnread();
+				if (currentUnread > baseTitleUnread) {
+					var delta = currentUnread - baseTitleUnread;
+					unfocusedCount = Math.max(unfocusedCount, delta);
+					updateBadgeDisplay(unfocusedCount);
+				} else if (currentUnread < baseTitleUnread) {
+					baseTitleUnread = currentUnread;
+				}
+			}
+
 			var titleEl = document.querySelector('title');
 			if (titleEl && titleEl.nodeType) {
 				try {
 					new MutationObserver(syncBadge).observe(titleEl, { childList: true, characterData: true, subtree: true });
 				} catch (e) {
-					setInterval(syncBadge, 3000);
+					setInterval(syncBadge, 2000);
 				}
 			} else {
-				setInterval(syncBadge, 3000);
+				setInterval(syncBadge, 2000);
 			}
 		});
 

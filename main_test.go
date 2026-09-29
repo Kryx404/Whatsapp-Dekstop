@@ -178,6 +178,22 @@ func TestImageDownloadDoesNotInheritPDFExtension(t *testing.T) {
 	}
 }
 
+func TestDockBadgeShowsNewNotificationsWhileUnfocused(t *testing.T) {
+	script := getInitScript("test-agent")
+	for _, want := range []string{
+		"unfocusedCount",
+		"onWindowFocused",
+		"onWindowBlur",
+		"window.__waOnNotificationDispatched",
+		"updateBadgeDisplay(0)",
+		"currentUnread - baseTitleUnread",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("dock badge unfocused notification counter missing %q", want)
+		}
+	}
+}
+
 func TestOfficeDocumentPreviewSupport(t *testing.T) {
 	script := getInitScript("test-agent")
 
