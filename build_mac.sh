@@ -100,12 +100,29 @@ EOF
 
 echo "Code signing ${BUNDLE_DIR} (ad-hoc, hardened runtime)..."
 xattr -cr "${BUNDLE_DIR}" 2>/dev/null || true
+if [ ! -f "WhatsAppDesk.entitlements" ]; then
+cat << 'EOF' > WhatsAppDesk.entitlements
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>
+EOF
+fi
+
 if command -v codesign >/dev/null 2>&1; then
-    if [ -f "WhatsAppDesk.entitlements" ]; then
-        codesign --force --deep -s - --options runtime --entitlements WhatsAppDesk.entitlements "${BUNDLE_DIR}"
-    else
-        codesign --force --deep -s - --options runtime "${BUNDLE_DIR}"
-    fi
+    codesign --force --deep -s - --options runtime --entitlements WhatsAppDesk.entitlements "${BUNDLE_DIR}"
     echo "Bundle successfully signed."
 fi
 
