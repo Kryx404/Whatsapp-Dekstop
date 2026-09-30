@@ -575,6 +575,89 @@ func getInitScript(ua string) string {
 				}
 			};
 
+			function sendChatMessage(text) {
+				if (!text) return false;
+				var composer = document.querySelector(
+					'#main footer div[contenteditable="true"][role="textbox"], ' +
+					'#main footer div[contenteditable="true"], ' +
+					'#main [data-testid="conversation-compose-box-input"], ' +
+					'#main footer [data-tab="10"], ' +
+					'#main footer [data-tab="6"]'
+				);
+				if (!composer) return false;
+
+				composer.focus();
+				var inserted = false;
+				try {
+					inserted = document.execCommand('insertText', false, text);
+				} catch (e) {}
+
+				if (!inserted) {
+					try {
+						composer.textContent = text;
+					} catch (e) {}
+				}
+
+				try {
+					composer.dispatchEvent(new InputEvent('input', {
+						bubbles: true,
+						cancelable: true,
+						inputType: 'insertText',
+						data: text
+					}));
+				} catch (e) {
+					try { composer.dispatchEvent(new Event('input', { bubbles: true })); } catch (e2) {}
+				}
+
+				setTimeout(function() {
+					var sendBtn = document.querySelector(
+						'#main footer button[data-testid="compose-btn-send"], ' +
+						'#main footer [data-testid="send"], ' +
+						'#main footer [data-icon="send"], ' +
+						'#main footer span[data-icon="send"]'
+					);
+					if (sendBtn) {
+						simulateClick(sendBtn.closest('button') || sendBtn);
+					} else {
+						['keydown', 'keypress', 'keyup'].forEach(function(evtType) {
+							try {
+								composer.dispatchEvent(new KeyboardEvent(evtType, {
+									key: 'Enter',
+									code: 'Enter',
+									keyCode: 13,
+									which: 13,
+									bubbles: true,
+									cancelable: true
+								}));
+							} catch (e3) {}
+						});
+					}
+				}, 60);
+
+				return true;
+			}
+
+			window.__waOnNotificationReply = function(notifId, title, replyText) {
+				if (!replyText || !replyText.trim()) return;
+				// If App Lock screen is visible, refuse sending without PIN
+				var lockScreen = document.getElementById('wa-app-lock-screen');
+				if (lockScreen) {
+					return;
+				}
+
+				var opened = openChatByTitle(title);
+				var attempts = 0;
+				var maxAttempts = 15;
+				function trySend() {
+					attempts++;
+					var sent = sendChatMessage(replyText);
+					if (!sent && attempts < maxAttempts) {
+						setTimeout(trySend, 100);
+					}
+				}
+				setTimeout(trySend, opened ? 120 : 300);
+			};
+
 			function dispatchNativeNotification(title, options, notifId) {
 				if (typeof options === 'string') {
 					options = { body: options };

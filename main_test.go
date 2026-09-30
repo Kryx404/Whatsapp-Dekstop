@@ -832,13 +832,15 @@ func TestNotificationClickNavigatesToChat(t *testing.T) {
 	script := getInitScript("test-agent")
 	for _, want := range []string{
 		"window.__waOnNotificationClicked",
+		"window.__waOnNotificationReply",
 		"openChatByTitle",
+		"sendChatMessage",
 		"simulateClick",
 		"recentNotifications",
 		"window.__waPendingNotificationClick",
 	} {
 		if !strings.Contains(script, want) {
-			t.Errorf("init script missing notification click navigation %q", want)
+			t.Errorf("init script missing notification click/reply requirement %q", want)
 		}
 	}
 
@@ -849,11 +851,16 @@ func TestNotificationClickNavigatesToChat(t *testing.T) {
 	darwinSrc := string(source)
 	for _, want := range []string{
 		"__waOnNotificationClicked",
+		"__waOnNotificationReply",
+		"UNTextInputNotificationAction",
+		"UNTextInputNotificationResponse",
+		"REPLY_ACTION",
+		"categoryIdentifier = @\"MESSAGE_CATEGORY\"",
 		"content.userInfo = @{ @\"id\": notifId, @\"title\": title };",
 		"postNativeMacNotification(const char* titleStr, const char* bodyStr, const char* notifIdStr)",
 	} {
 		if !strings.Contains(darwinSrc, want) {
-			t.Errorf("app_darwin.go missing notification click bridge %q", want)
+			t.Errorf("app_darwin.go missing notification bridge requirement %q", want)
 		}
 	}
 }

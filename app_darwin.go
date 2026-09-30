@@ -223,17 +223,43 @@ static void triggerNativeMemoryPurge(void) {
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center
  didReceiveNotificationResponse:(UNNotificationResponse *)response
           withCompletionHandler:(void (^)(void))completionHandler {
+    NSString *notifId = response.notification.request.identifier;
+    NSString *title = response.notification.request.content.title;
+    if (!title && response.notification.request.content.userInfo) {
+        title = response.notification.request.content.userInfo[@"title"];
+    }
+
+    if ([response isKindOfClass:[UNTextInputNotificationResponse class]]) {
+        UNTextInputNotificationResponse *textResp = (UNTextInputNotificationResponse *)response;
+        NSString *replyText = textResp.userText;
+        WKWebView *wv = g_mainWebView;
+        if (!wv && self.window) {
+            wv = findWKWebView([self.window contentView]);
+        }
+        if (wv && replyText && replyText.length > 0) {
+            NSString *escapedId = [[(notifId ?: @"") stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
+                                                     stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+            NSString *escapedTitle = [[(title ?: @"") stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
+                                                      stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+            NSString *escapedText = [[replyText stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
+                                                stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+            escapedText = [[escapedText stringByReplacingOccurrencesOfString:@"\r" withString:@"\\n"]
+                                        stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
+            NSString *js = [NSString stringWithFormat:@"if (typeof window.__waOnNotificationReply === 'function') { window.__waOnNotificationReply(\"%@\", \"%@\", \"%@\"); }", escapedId, escapedTitle, escapedText];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [wv evaluateJavaScript:js completionHandler:nil];
+            });
+        }
+        completionHandler();
+        return;
+    }
+
     if (self.window) {
         if ([self.window isMiniaturized]) {
             [self.window deminiaturize:nil];
         }
         [self.window makeKeyAndOrderFront:nil];
         [NSApp activateIgnoringOtherApps:YES];
-    }
-    NSString *notifId = response.notification.request.identifier;
-    NSString *title = response.notification.request.content.title;
-    if (!title && response.notification.request.content.userInfo) {
-        title = response.notification.request.content.userInfo[@"title"];
     }
     WKWebView *wv = g_mainWebView;
     if (!wv && self.window) {
@@ -302,6 +328,7 @@ static void postNativeMacNotification(const char* titleStr, const char* bodyStr,
             content.title = title;
             content.body = body;
             content.sound = [UNNotificationSound defaultSound];
+            content.categoryIdentifier = @"MESSAGE_CATEGORY";
             content.userInfo = @{ @"id": notifId, @"title": title };
             UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:notifId
                                                                                     content:content
@@ -315,8 +342,28 @@ static void postNativeMacNotification(const char* titleStr, const char* bodyStr,
     }
 }
 
+static void setupMacNotificationCategories(void) {
+    if (!nativeMacNotificationsAvailable()) return;
+    UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+    UNTextInputNotificationAction *replyAction = [UNTextInputNotificationAction
+        actionWithIdentifier:@"REPLY_ACTION"
+                       title:@"Reply"
+                     options:UNNotificationActionOptionNone
+        textInputButtonTitle:@"Send"
+        textInputPlaceholder:@"Type a message..."];
+
+    UNNotificationCategory *category = [UNNotificationCategory
+        categoryWithIdentifier:@"MESSAGE_CATEGORY"
+                       actions:@[replyAction]
+             intentIdentifiers:@[]
+                       options:UNNotificationCategoryOptionCustomDismissAction];
+
+    [center setNotificationCategories:[NSSet setWithObject:category]];
+}
+
 static void requestNativeMacNotificationAuthorization(void) {
     if (!nativeMacNotificationsAvailable()) return;
+    setupMacNotificationCategories();
     [[UNUserNotificationCenter currentNotificationCenter]
         requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge)
                       completionHandler:^(BOOL granted, NSError *error) {
