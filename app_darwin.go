@@ -24,6 +24,7 @@ extern int webview_recreate_browser_active(void);
 // instance (and its real, already-attached website data store) instead of only
 // posting a notification that WebKit does not actually observe.
 static WKWebView* g_mainWebView = nil;
+static WKWebView* findWKWebView(NSView* view);
 
 static const char* mediaPermissionStatus(AVMediaType type) {
     switch ([AVCaptureDevice authorizationStatusForMediaType:type]) {
@@ -229,6 +230,25 @@ static void triggerNativeMemoryPurge(void) {
         [self.window makeKeyAndOrderFront:nil];
         [NSApp activateIgnoringOtherApps:YES];
     }
+    NSString *notifId = response.notification.request.identifier;
+    NSString *title = response.notification.request.content.title;
+    if (!title && response.notification.request.content.userInfo) {
+        title = response.notification.request.content.userInfo[@"title"];
+    }
+    WKWebView *wv = g_mainWebView;
+    if (!wv && self.window) {
+        wv = findWKWebView([self.window contentView]);
+    }
+    if (wv && notifId) {
+        NSString *escapedId = [[notifId stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
+                                         stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+        NSString *escapedTitle = [[(title ?: @"") stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
+                                                  stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+        NSString *js = [NSString stringWithFormat:@"if (typeof window.__waOnNotificationClicked === 'function') { window.__waOnNotificationClicked(\"%@\", \"%@\"); }", escapedId, escapedTitle];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [wv evaluateJavaScript:js completionHandler:nil];
+        });
+    }
     completionHandler();
 }
 @end
@@ -260,10 +280,11 @@ static void postMacAppleScriptNotification(NSString *title, NSString *body) {
     }
 }
 
-static void postNativeMacNotification(const char* titleStr, const char* bodyStr) {
+static void postNativeMacNotification(const char* titleStr, const char* bodyStr, const char* notifIdStr) {
     @autoreleasepool {
         NSString *title = (titleStr && strlen(titleStr) > 0) ? [NSString stringWithUTF8String:titleStr] : @"WhatsApp Desk";
         NSString *body = (bodyStr && strlen(bodyStr) > 0) ? [NSString stringWithUTF8String:bodyStr] : @"";
+        NSString *notifId = (notifIdStr && strlen(notifIdStr) > 0) ? [NSString stringWithUTF8String:notifIdStr] : [[NSUUID UUID] UUIDString];
 
         if (!nativeMacNotificationsAvailable()) {
             postMacAppleScriptNotification(title, body);
@@ -281,7 +302,8 @@ static void postNativeMacNotification(const char* titleStr, const char* bodyStr)
             content.title = title;
             content.body = body;
             content.sound = [UNNotificationSound defaultSound];
-            UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:[[NSUUID UUID] UUIDString]
+            content.userInfo = @{ @"id": notifId, @"title": title };
+            UNNotificationRequest *request = [UNNotificationRequest requestWithIdentifier:notifId
                                                                                     content:content
                                                                                     trigger:nil];
             [center addNotificationRequest:request withCompletionHandler:^(NSError * _Nullable error) {
@@ -346,8 +368,6 @@ static WhatsAppUIDelegate* g_uiDelegate = nil;
 static NSWindow* g_pdfPreviewWindow = nil;
 static id g_pdfPreviewDelegate = nil;
 static NSWindow* g_mainWindow = nil;
-
-static WKWebView* findWKWebView(NSView* view);
 
 static void setWKWebViewUserAgentAndMedia(void* nsWindowPtr, const char* uaStr) {
     @autoreleasepool {
@@ -1264,12 +1284,14 @@ func unloadLaunchAgent(plistPath string) error {
 	return exec.Command("/bin/launchctl", "bootout", launchAgentDomain(), plistPath).Run()
 }
 
-func showNativeNotification(title, message string) {
+func showNativeNotification(title, message, notifId string) {
 	cTitle := C.CString(title)
 	defer C.free(unsafe.Pointer(cTitle))
 	cMsg := C.CString(message)
 	defer C.free(unsafe.Pointer(cMsg))
-	C.postNativeMacNotification(cTitle, cMsg)
+	cId := C.CString(notifId)
+	defer C.free(unsafe.Pointer(cId))
+	C.postNativeMacNotification(cTitle, cMsg, cId)
 }
 
 func runApp() {
@@ -1336,8 +1358,12 @@ func runApp() {
 	})
 
 	// 6. Bind native notification bridge
-	_ = w.Bind("sendNativeNotification", func(title, body string) {
-		go showNativeNotification(title, body)
+	_ = w.Bind("sendNativeNotification", func(title, body string, notifId ...string) {
+		id := ""
+		if len(notifId) > 0 {
+			id = notifId[0]
+		}
+		go showNativeNotification(title, body, id)
 	})
 	_ = w.Bind("getNotificationsEnabledNative", getNotificationsEnabled)
 	_ = w.Bind("setNotificationsEnabledNative", setNotificationsEnabled)

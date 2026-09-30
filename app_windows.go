@@ -723,7 +723,7 @@ func runApp() {
 	})
 
 	// Bind native notification bridge
-	_ = w.Bind("sendNativeNotification", func(title, body string) {
+	_ = w.Bind("sendNativeNotification", func(title, body string, notifId ...string) {
 		go showNativeNotification(title, body, iconFullPath, executablePath)
 	})
 	_ = w.Bind("getNotificationsEnabledNative", getNotificationsEnabled)

@@ -437,7 +437,145 @@ func getInitScript(ua string) string {
 			};
 			window.refreshNotificationsEnabled();
 
-			function dispatchNativeNotification(title, options) {
+			var recentNotifications = new Map();
+			var recentNotificationsByTitle = new Map();
+			var notifSeq = 0;
+
+			function simulateClick(el) {
+				if (!el) return;
+				try { el.focus(); } catch (e) {}
+				['mousedown', 'mouseup', 'click'].forEach(function(evt) {
+					try {
+						el.dispatchEvent(new MouseEvent(evt, {
+							bubbles: true,
+							cancelable: true,
+							view: window
+						}));
+					} catch (e) {}
+				});
+				try { el.click(); } catch (e2) {}
+			}
+
+			function openChatByTitle(chatTitle) {
+				if (!chatTitle) return false;
+				var raw = String(chatTitle).trim();
+				if (!raw || raw === 'WhatsApp Desk' || raw === 'WhatsApp' || raw === 'Update Available') return false;
+
+				var targets = [raw];
+				if (raw.indexOf(' @ ') !== -1) {
+					var atParts = raw.split(' @ ');
+					if (atParts[1] && targets.indexOf(atParts[1].trim()) === -1) targets.push(atParts[1].trim());
+					if (atParts[0] && targets.indexOf(atParts[0].trim()) === -1) targets.push(atParts[0].trim());
+				}
+				if (raw.indexOf(': ') !== -1) {
+					var colonParts = raw.split(': ');
+					if (colonParts[0] && targets.indexOf(colonParts[0].trim()) === -1) targets.push(colonParts[0].trim());
+				}
+
+				var side = document.querySelector('#pane-side') ||
+					document.querySelector('#side') ||
+					document.querySelector('[data-testid="chat-list"]');
+				if (!side) return false;
+
+				for (var t = 0; t < targets.length; t++) {
+					var name = targets[t].toLowerCase();
+					if (!name) continue;
+
+					// 1. Check title attributes on span/div inside side
+					var titleEls = side.querySelectorAll('span[title], div[title]');
+					for (var i = 0; i < titleEls.length; i++) {
+						var attr = (titleEls[i].getAttribute('title') || '').trim().toLowerCase();
+						if (attr && (attr === name || attr.indexOf(name) === 0 || name.indexOf(attr) === 0)) {
+							var row = (titleEls[i].closest && titleEls[i].closest('[role="row"], [data-testid="cell-frame-container"], div._ak8l')) || titleEls[i];
+							simulateClick(row);
+							return true;
+						}
+					}
+
+					// 2. Check inner text of row elements
+					var textSpans = side.querySelectorAll('[role="row"] span[dir="auto"], [data-testid="cell-frame-container"] span[dir="auto"], div._ak8l span[dir="auto"]');
+					for (var j = 0; j < textSpans.length; j++) {
+						var txt = (textSpans[j].textContent || '').trim().toLowerCase();
+						if (txt && (txt === name || (name.length > 3 && txt.indexOf(name) === 0))) {
+							var r = (textSpans[j].closest && textSpans[j].closest('[role="row"], [data-testid="cell-frame-container"], div._ak8l')) || textSpans[j];
+							simulateClick(r);
+							return true;
+						}
+					}
+
+					// 3. Check aria-label on rows
+					var rows = side.querySelectorAll('[role="row"], [data-testid="cell-frame-container"]');
+					for (var k = 0; k < rows.length; k++) {
+						var aria = (rows[k].getAttribute('aria-label') || '').toLowerCase();
+						if (aria && aria.indexOf(name) !== -1) {
+							simulateClick(rows[k]);
+							return true;
+						}
+					}
+				}
+
+				// 4. Fallback search bar in chat list
+				try {
+					var searchInput = document.querySelector(
+						'#side [contenteditable="true"][data-tab="3"], ' +
+						'#side [data-testid="chat-list-search"], ' +
+						'#side input[type="text"]'
+					);
+					if (searchInput) {
+						searchInput.focus();
+						document.execCommand('selectAll', false, null);
+						document.execCommand('insertText', false, targets[0]);
+						searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+						setTimeout(function() {
+							var first = side.querySelector('[role="row"], [data-testid="cell-frame-container"]');
+							if (first) simulateClick(first);
+						}, 300);
+						return true;
+					}
+				} catch (e) {}
+
+				return false;
+			}
+
+			window.__waOnNotificationClicked = function(notifId, title) {
+				try { window.focus(); } catch (ef) {}
+				// If App Lock screen is visible, queue opening until unlocked
+				var lockScreen = document.getElementById('wa-app-lock-screen');
+				if (lockScreen) {
+					window.__waPendingNotificationClick = { notifId: notifId, title: title };
+					return;
+				}
+
+				var notif = (notifId && recentNotifications.get(notifId)) ||
+					(title && recentNotificationsByTitle.get(String(title).trim().toLowerCase())) ||
+					null;
+
+				var dispatched = false;
+				if (notif) {
+					try {
+						var ev = new Event('click');
+						if (typeof notif.onclick === 'function') {
+							notif.onclick.call(notif, ev);
+							dispatched = true;
+						}
+						if (typeof notif.dispatchEvent === 'function') {
+							notif.dispatchEvent(ev);
+							dispatched = true;
+						}
+					} catch (e) {
+						console.error('Error invoking notification click:', e);
+					}
+				}
+
+				// In addition, click the chat directly in DOM
+				if (title) {
+					setTimeout(function() {
+						openChatByTitle(title);
+					}, dispatched ? 80 : 0);
+				}
+			};
+
+			function dispatchNativeNotification(title, options, notifId) {
 				if (typeof options === 'string') {
 					options = { body: options };
 				}
@@ -445,7 +583,11 @@ func getInitScript(ua string) string {
 				var body = options.body != null ? String(options.body) : '';
 				var notifTitle = title != null && String(title).length > 0 ? String(title) : 'WhatsApp Desk';
 				if (notificationsStateReady && notificationsEnabled && window.sendNativeNotification) {
-					window.sendNativeNotification(notifTitle, body);
+					if (notifId) {
+						window.sendNativeNotification(notifTitle, body, notifId);
+					} else {
+						window.sendNativeNotification(notifTitle, body);
+					}
 				}
 				if (typeof window.__waOnNotificationDispatched === 'function') {
 					try { window.__waOnNotificationDispatched(); } catch (e) {}
@@ -457,7 +599,10 @@ func getInitScript(ua string) string {
 					options = { body: options };
 				}
 				options = options || {};
-				dispatchNativeNotification(title, options);
+				var notifId = (options.tag && String(options.tag).length > 0) ?
+					String(options.tag) :
+					('wa_notif_' + Date.now() + '_' + (++notifSeq));
+				this.id = notifId;
 				this.title = title != null ? String(title) : '';
 				this.body = options.body != null ? String(options.body) : '';
 				this.tag = options.tag != null ? String(options.tag) : '';
@@ -467,6 +612,19 @@ func getInitScript(ua string) string {
 				this.onclose = null;
 				this.onerror = null;
 				this.onshow = null;
+				this._listeners = {};
+
+				recentNotifications.set(notifId, this);
+				if (this.title) {
+					recentNotificationsByTitle.set(this.title.trim().toLowerCase(), this);
+				}
+				if (recentNotifications.size > 50) {
+					var oldestKey = recentNotifications.keys().next().value;
+					recentNotifications.delete(oldestKey);
+				}
+
+				dispatchNativeNotification(title, options, notifId);
+
 				var self = this;
 				setTimeout(function() {
 					if (typeof self.onshow === 'function') {
@@ -504,18 +662,38 @@ func getInitScript(ua string) string {
 				}
 			};
 			WAClassNotification.prototype.addEventListener = function(type, listener) {
+				if (!this._listeners) this._listeners = {};
+				if (!this._listeners[type]) this._listeners[type] = [];
+				this._listeners[type].push(listener);
 				if (type === 'click') this.onclick = listener;
 				if (type === 'close') this.onclose = listener;
 				if (type === 'error') this.onerror = listener;
 				if (type === 'show') this.onshow = listener;
 			};
 			WAClassNotification.prototype.removeEventListener = function(type, listener) {
+				if (this._listeners && this._listeners[type]) {
+					var idx = this._listeners[type].indexOf(listener);
+					if (idx !== -1) this._listeners[type].splice(idx, 1);
+				}
 				if (type === 'click' && this.onclick === listener) this.onclick = null;
 				if (type === 'close' && this.onclose === listener) this.onclose = null;
 				if (type === 'error' && this.onerror === listener) this.onerror = null;
 				if (type === 'show' && this.onshow === listener) this.onshow = null;
 			};
-			WAClassNotification.prototype.dispatchEvent = function() { return true; };
+			WAClassNotification.prototype.dispatchEvent = function(event) {
+				var type = event && event.type;
+				if (!type) return true;
+				if (typeof this['on' + type] === 'function') {
+					try { this['on' + type].call(this, event); } catch (e) {}
+				}
+				if (this._listeners && this._listeners[type]) {
+					var list = this._listeners[type].slice();
+					for (var i = 0; i < list.length; i++) {
+						try { list[i].call(this, event); } catch (e2) {}
+					}
+				}
+				return true;
+			};
 
 			try {
 				Object.defineProperty(window, 'Notification', {
@@ -541,7 +719,16 @@ func getInitScript(ua string) string {
 			try {
 				if (typeof ServiceWorkerRegistration !== 'undefined' && ServiceWorkerRegistration.prototype) {
 					ServiceWorkerRegistration.prototype.showNotification = function(title, options) {
-						dispatchNativeNotification(title, options);
+						var notifId = (options && options.tag) ? String(options.tag) : ('wa_sw_' + Date.now() + '_' + (++notifSeq));
+						if (title) {
+							recentNotificationsByTitle.set(String(title).trim().toLowerCase(), {
+								title: String(title),
+								tag: options && options.tag ? String(options.tag) : '',
+								onclick: null,
+								dispatchEvent: function() { return true; }
+							});
+						}
+						dispatchNativeNotification(title, options, notifId);
 						return Promise.resolve();
 					};
 					if (!ServiceWorkerRegistration.prototype.getNotifications) {
@@ -3321,6 +3508,15 @@ func getInitScript(ua string) string {
 							if (screen.parentNode) screen.parentNode.removeChild(screen);
 							if (typeof window.showFloatingToast === 'function') {
 								window.showFloatingToast('🔓 WhatsApp Desk terbuka');
+							}
+							if (window.__waPendingNotificationClick) {
+								var pending = window.__waPendingNotificationClick;
+								window.__waPendingNotificationClick = null;
+								setTimeout(function() {
+									if (typeof window.__waOnNotificationClicked === 'function') {
+										window.__waOnNotificationClicked(pending.notifId, pending.title);
+									}
+								}, 100);
 							}
 						} else {
 							errorMsg.textContent = 'PIN salah. Coba lagi.';

@@ -828,6 +828,36 @@ func TestDarwinNotificationHasAppleScriptFallback(t *testing.T) {
 	}
 }
 
+func TestNotificationClickNavigatesToChat(t *testing.T) {
+	script := getInitScript("test-agent")
+	for _, want := range []string{
+		"window.__waOnNotificationClicked",
+		"openChatByTitle",
+		"simulateClick",
+		"recentNotifications",
+		"window.__waPendingNotificationClick",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("init script missing notification click navigation %q", want)
+		}
+	}
+
+	source, err := os.ReadFile("app_darwin.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	darwinSrc := string(source)
+	for _, want := range []string{
+		"__waOnNotificationClicked",
+		"content.userInfo = @{ @\"id\": notifId, @\"title\": title };",
+		"postNativeMacNotification(const char* titleStr, const char* bodyStr, const char* notifIdStr)",
+	} {
+		if !strings.Contains(darwinSrc, want) {
+			t.Errorf("app_darwin.go missing notification click bridge %q", want)
+		}
+	}
+}
+
 func TestAllPlatformsApplySavedThemeToNativeWindow(t *testing.T) {
 	cases := []struct {
 		file   string
