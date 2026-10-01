@@ -722,6 +722,10 @@ func runApp() {
 		saveWindowState(userDataDir, hwnd)
 	})
 
+	_ = w.Bind("hideWindowNative", func() {
+		procShowWindow.Call(hwnd, uintptr(SW_MINIMIZE))
+	})
+
 	// Bind native notification bridge
 	_ = w.Bind("sendNativeNotification", func(title, body string, notifId ...string) {
 		go showNativeNotification(title, body, iconFullPath, executablePath)

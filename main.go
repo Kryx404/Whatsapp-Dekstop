@@ -6210,11 +6210,18 @@ func getInitScript(ua string) string {
 			}, false);
 		});
 
-		// Chat Navigation & Search Shortcuts (Cmd/Ctrl + F, Cmd/Ctrl + 1..9)
+		// Chat Navigation & Search Shortcuts (Cmd/Ctrl + F, Cmd/Ctrl + 1..9, Next/Prev Chat, Chat Mgmt)
 		// Matches WhatsApp Desktop behavior:
 		// - Cmd/Ctrl+F: search inside active conversation or chat list
 		// - Cmd/Ctrl+Shift+F: search chat list directly
 		// - Cmd/Ctrl+1..9: switch directly to 1st..9th chat in conversation list
+		// - Cmd/Ctrl+] or Ctrl+Tab: switch to next chat (chat bawah)
+		// - Cmd/Ctrl+[ or Ctrl+Shift+Tab: switch to previous chat (chat atas)
+		// - Cmd/Ctrl+N: open new chat
+		// - Cmd/Ctrl+Shift+E: archive active chat
+		// - Cmd/Ctrl+Shift+U: mark active chat as unread
+		// - Cmd/Ctrl+Backspace: clear/delete active chat
+		// - Cmd/Ctrl+W: close modal/preview or hide window to background
 		waRunModule('chat-navigation-shortcuts', function() {
 			function triggerChatSearch(forceGlobal) {
 				if (document.getElementById('wa-app-lock-screen')) return false;
@@ -6365,10 +6372,171 @@ func getInitScript(ua string) string {
 			}
 			window.selectChatByIndex = selectChatByIndex;
 
+			function getActiveChatIndex(rows) {
+				if (!rows || !rows.length) return -1;
+				for (var i = 0; i < rows.length; i++) {
+					if (rows[i].getAttribute('aria-selected') === 'true' ||
+						rows[i].querySelector('[aria-selected="true"]')) {
+						return i;
+					}
+				}
+				var header = document.querySelector('#main header');
+				if (header) {
+					var titleSpan = header.querySelector('span[dir="auto"], span[title], h2, div[title]');
+					var headerTitle = (titleSpan && (titleSpan.getAttribute('title') || titleSpan.textContent) || '').trim().toLowerCase();
+					if (headerTitle) {
+						for (var j = 0; j < rows.length; j++) {
+							var r = rows[j];
+							var rowTitleEl = r.querySelector('span[title], span[dir="auto"], div[title]');
+							var rowTitle = (rowTitleEl && (rowTitleEl.getAttribute('title') || rowTitleEl.textContent) || '').trim().toLowerCase();
+							if (rowTitle && (rowTitle === headerTitle || rowTitle.indexOf(headerTitle) !== -1 || headerTitle.indexOf(rowTitle) !== -1)) {
+								return j;
+							}
+						}
+					}
+				}
+				return -1;
+			}
+
+			function navigateChat(delta) {
+				if (document.getElementById('wa-app-lock-screen')) return false;
+				var rows = getChatListRows();
+				if (!rows || !rows.length) return false;
+				var curr = getActiveChatIndex(rows);
+				var nextIdx = 0;
+				if (curr === -1) {
+					nextIdx = delta > 0 ? 0 : rows.length - 1;
+				} else {
+					nextIdx = curr + delta;
+					if (nextIdx < 0) nextIdx = rows.length - 1;
+					if (nextIdx >= rows.length) nextIdx = 0;
+				}
+				return selectChatByIndex(nextIdx);
+			}
+			window.navigateNextChat = function() { return navigateChat(1); };
+			window.navigatePrevChat = function() { return navigateChat(-1); };
+
+			function openNewChat() {
+				if (document.getElementById('wa-app-lock-screen')) return false;
+				var newChatBtn = document.querySelector(
+					'#side [data-icon="new-chat-outline"], ' +
+					'#side [data-testid="chat-plus"], ' +
+					'#side [data-icon="chat"], ' +
+					'#side [data-icon="community-chat"], ' +
+					'#side button[aria-label*="New chat" i], ' +
+					'#side button[aria-label*="Chat baru" i], ' +
+					'#side [role="button"][aria-label*="New chat" i], ' +
+					'#side [role="button"][aria-label*="Chat baru" i]'
+				);
+				if (newChatBtn) {
+					simulateClick(newChatBtn.closest('button, [role="button"]') || newChatBtn);
+					return true;
+				}
+				return false;
+			}
+			window.openNewChat = openNewChat;
+
+			function triggerActiveChatAction(actionType) {
+				if (document.getElementById('wa-app-lock-screen')) return false;
+
+				var rows = getChatListRows();
+				if (!rows || !rows.length) return false;
+				var curr = getActiveChatIndex(rows);
+				var row = curr >= 0 ? rows[curr] : rows[0];
+				if (!row) return false;
+
+				// Header menu buttons check first (for delete, clear, mute)
+				if (actionType === 'mute' || actionType === 'delete' || actionType === 'clear') {
+					var headerMenuBtn = document.querySelector(
+						'#main header [data-icon="menu"], ' +
+						'#main header [data-testid="menu"], ' +
+						'#main header [role="button"][aria-label*="Menu" i], ' +
+						'#main header button[aria-label*="Menu" i]'
+					);
+					if (headerMenuBtn) {
+						simulateClick(headerMenuBtn.closest('button, [role="button"]') || headerMenuBtn);
+						setTimeout(function() {
+							var menuItems = document.querySelectorAll('[role="menuitem"], li[tabindex="-1"], div[role="button"][tabindex="0"]');
+							var regexMap = {
+								'mute': /^(mute|bisukan)/i,
+								'delete': /^(delete chat|hapus chat|delete|hapus)/i,
+								'clear': /^(clear messages|bersihkan pesan|clear|bersihkan)/i
+							};
+							var rx = regexMap[actionType];
+							if (rx) {
+								for (var i = 0; i < menuItems.length; i++) {
+									var it = menuItems[i];
+									if (rx.test((it.textContent || '').trim())) {
+										simulateClick(it);
+										return;
+									}
+								}
+							}
+						}, 60);
+						return true;
+					}
+				}
+
+				// Context menu on active row (for archive, unread, pin)
+				var rect = row.getBoundingClientRect();
+				var clientX = rect.left + Math.min(rect.width / 2, 100);
+				var clientY = rect.top + Math.min(rect.height / 2, 35);
+
+				var evt = new MouseEvent('contextmenu', {
+					bubbles: true,
+					cancelable: true,
+					view: window,
+					clientX: clientX,
+					clientY: clientY
+				});
+				row.dispatchEvent(evt);
+
+				var targetRegexMap = {
+					'archive': /^(archive|arsipkan)/i,
+					'unread': /^(mark as unread|tandai belum dibaca|tandai sebagai belum dibaca)/i,
+					'mute': /^(mute|bisukan)/i,
+					'delete': /^(delete|hapus)/i,
+					'pin': /^(pin|sematkan|lepas pin|unpin)/i
+				};
+				var targetRx = targetRegexMap[actionType];
+				if (!targetRx) return true;
+
+				setTimeout(function() {
+					var items = document.querySelectorAll('[role="menuitem"], li[tabindex="-1"], div[role="button"][tabindex="0"]');
+					for (var j = 0; j < items.length; j++) {
+						var item = items[j];
+						if (targetRx.test((item.textContent || '').trim())) {
+							simulateClick(item);
+							return;
+						}
+					}
+				}, 60);
+
+				return true;
+			}
+			window.triggerActiveChatAction = triggerActiveChatAction;
+
 			window.addEventListener('keydown', function(e) {
 				if (document.getElementById('wa-app-lock-screen')) return;
 
 				var isMod = e.metaKey || e.ctrlKey;
+
+				// Next Chat: Cmd+] / Cmd+Shift+] / Ctrl+Tab
+				if ((isMod && (e.key === ']' || e.key === '}')) || (e.ctrlKey && e.key === 'Tab' && !e.shiftKey)) {
+					e.preventDefault();
+					e.stopPropagation();
+					navigateChat(1);
+					return;
+				}
+
+				// Previous Chat: Cmd+[ / Cmd+Shift+[ / Ctrl+Shift+Tab
+				if ((isMod && (e.key === '[' || e.key === '{')) || (e.ctrlKey && e.key === 'Tab' && e.shiftKey)) {
+					e.preventDefault();
+					e.stopPropagation();
+					navigateChat(-1);
+					return;
+				}
+
 				if (!isMod) return;
 
 				// Cmd+F or Cmd+Shift+F (Search)
@@ -6379,6 +6547,48 @@ func getInitScript(ua string) string {
 					return;
 				}
 
+				// Cmd+N (New Chat)
+				if (!e.shiftKey && !e.altKey && (e.key === 'n' || e.key === 'N')) {
+					e.preventDefault();
+					e.stopPropagation();
+					openNewChat();
+					return;
+				}
+
+				// Cmd+Shift+E (Archive Chat)
+				if (e.shiftKey && !e.altKey && (e.key === 'e' || e.key === 'E')) {
+					e.preventDefault();
+					e.stopPropagation();
+					triggerActiveChatAction('archive');
+					return;
+				}
+
+				// Cmd+Shift+U (Mark as Unread)
+				if (e.shiftKey && !e.altKey && (e.key === 'u' || e.key === 'U')) {
+					e.preventDefault();
+					e.stopPropagation();
+					triggerActiveChatAction('unread');
+					return;
+				}
+
+				// Cmd+Backspace (Delete / Clear Chat when not focused in input)
+				if (!e.shiftKey && !e.altKey && (e.key === 'Backspace' || e.key === 'Delete')) {
+					var activeEl = document.activeElement;
+					var isInput = activeEl && (
+						activeEl.tagName === 'INPUT' ||
+						activeEl.tagName === 'TEXTAREA' ||
+						activeEl.isContentEditable ||
+						activeEl.getAttribute('contenteditable') === 'true' ||
+						(activeEl.closest && activeEl.closest('div[contenteditable="true"], textarea, input'))
+					);
+					if (!isInput) {
+						e.preventDefault();
+						e.stopPropagation();
+						triggerActiveChatAction('delete');
+						return;
+					}
+				}
+
 				// Cmd+1..9 (Jump to chat)
 				if (!e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
 					e.preventDefault();
@@ -6386,6 +6596,43 @@ func getInitScript(ua string) string {
 					var idx = parseInt(e.key, 10) - 1;
 					selectChatByIndex(idx);
 					return;
+				}
+
+				// Cmd+W / Ctrl+W (Close modal / media viewer first; otherwise hide window)
+				if (!e.shiftKey && !e.altKey && (e.key === 'w' || e.key === 'W')) {
+					var settingsOverlay = document.getElementById('wa-settings-overlay');
+					if (settingsOverlay) {
+						e.preventDefault();
+						e.stopPropagation();
+						if (typeof window.dismissSettingsModal === 'function') {
+							window.dismissSettingsModal();
+						} else if (settingsOverlay.parentNode) {
+							settingsOverlay.parentNode.removeChild(settingsOverlay);
+						}
+						return;
+					}
+					var docOverlay = document.getElementById('wa-doc-modal-overlay') || document.getElementById('wa-recovery-overlay');
+					if (docOverlay) {
+						e.preventDefault();
+						e.stopPropagation();
+						if (docOverlay.parentNode) docOverlay.parentNode.removeChild(docOverlay);
+						return;
+					}
+					var viewer = document.querySelector('[data-testid="media-viewer"]');
+					if (viewer) {
+						e.preventDefault();
+						e.stopPropagation();
+						if (typeof window.closeDocumentViewerAfterNativePreview === 'function') {
+							window.closeDocumentViewerAfterNativePreview();
+						}
+						return;
+					}
+					if (window.hideWindowNative) {
+						e.preventDefault();
+						e.stopPropagation();
+						window.hideWindowNative();
+						return;
+					}
 				}
 			}, true);
 		});

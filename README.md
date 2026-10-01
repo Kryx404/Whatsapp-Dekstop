@@ -68,6 +68,13 @@ Get the latest stable release for your operating system (updated automatically):
 | **Lock Application (PIN)** | <kbd>Cmd</kbd> + <kbd>L</kbd> | <kbd>Ctrl</kbd> + <kbd>L</kbd> |
 | **Search in Chat / Global** | <kbd>Cmd</kbd> + <kbd>F</kbd> / <kbd>Shift</kbd>+<kbd>F</kbd> | <kbd>Ctrl</kbd> + <kbd>F</kbd> / <kbd>Shift</kbd>+<kbd>F</kbd> |
 | **Jump to Chat (1st - 9th)** | <kbd>Cmd</kbd> + <kbd>1</kbd> - <kbd>9</kbd> | <kbd>Ctrl</kbd> + <kbd>1</kbd> - <kbd>9</kbd> |
+| **Next Chat (bawah)** | <kbd>Cmd</kbd> + <kbd>]</kbd> / <kbd>Ctrl</kbd>+<kbd>Tab</kbd> | <kbd>Ctrl</kbd> + <kbd>Tab</kbd> |
+| **Previous Chat (atas)** | <kbd>Cmd</kbd> + <kbd>[</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Tab</kbd> |
+| **New Chat** | <kbd>Cmd</kbd> + <kbd>N</kbd> | <kbd>Ctrl</kbd> + <kbd>N</kbd> |
+| **Archive Active Chat** | <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd> | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd> |
+| **Mark as Unread** | <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>U</kbd> | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>U</kbd> |
+| **Delete / Clear Chat** | <kbd>Cmd</kbd> + <kbd>Backspace</kbd> | <kbd>Ctrl</kbd> + <kbd>Backspace</kbd> |
+| **Close Modal / Hide Window** | <kbd>Cmd</kbd> + <kbd>W</kbd> | <kbd>Ctrl</kbd> + <kbd>W</kbd> |
 | **Toggle Privacy Mode** | <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> |
 | **Toggle Always on Top** | <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd> | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd> |
 | **Mute / Unmute Audio** | <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd> | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd> |

@@ -205,6 +205,18 @@ static void triggerNativeMemoryPurge(void) {
     return YES;
 }
 
+- (void)applicationDidBecomeActive:(NSNotification *)notification {
+    if (self.window) {
+        if ([self.window isMiniaturized]) {
+            [self.window deminiaturize:nil];
+        }
+        if (![self.window isVisible]) {
+            [self.window makeKeyAndOrderFront:nil];
+            [NSApp activateIgnoringOtherApps:YES];
+        }
+    }
+}
+
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center
        willPresentNotification:(UNNotification *)notification
          withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler {
@@ -661,6 +673,14 @@ static void showAppWindow(void) {
         [win setIsVisible:YES];
     }
     [NSApp activateIgnoringOtherApps:YES];
+}
+
+static void hideAppWindow(void) {
+    NSWindow* win = appWindow();
+    if (win) {
+        [win orderOut:nil];
+        purgeWebKitMemory();
+    }
 }
 
 static void evaluateAppJavaScript(NSString* script) {
@@ -1409,6 +1429,10 @@ func runApp() {
 	// The callback runs on the WebView UI thread, as required by AppKit.
 	_ = w.Bind("saveWindowStateNative", func(width, height int) {
 		saveWindowState(userDataDir, w.Window())
+	})
+
+	_ = w.Bind("hideWindowNative", func() {
+		C.hideAppWindow()
 	})
 
 	// 6. Bind native notification bridge

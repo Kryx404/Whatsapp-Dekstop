@@ -889,9 +889,16 @@ func TestChatNavigationShortcuts(t *testing.T) {
 		"waRunModule('chat-navigation-shortcuts'",
 		"window.triggerChatSearch",
 		"window.selectChatByIndex",
+		"window.navigateNextChat",
+		"window.navigatePrevChat",
+		"window.openNewChat",
+		"window.triggerActiveChatAction",
 		"getChatListRows",
 		"selectChatByIndex(idx)",
+		"navigateChat(1)",
+		"navigateChat(-1)",
 		"triggerChatSearch(!!e.shiftKey)",
+		"window.hideWindowNative",
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("init script missing chat navigation shortcut invariant %q", want)
@@ -907,10 +914,21 @@ func TestChatNavigationShortcuts(t *testing.T) {
 		"- (void)menuFind:(id)sender;",
 		"evaluateAppJavaScript(@\"if (window.triggerChatSearch)",
 		"[editMenu addItemWithTitle:@\"Find...\" action:@selector(menuFind:) keyEquivalent:@\"f\"];",
+		"applicationDidBecomeActive:",
+		"hideAppWindow(void)",
+		"w.Bind(\"hideWindowNative\"",
 	} {
 		if !strings.Contains(darwinSrc, want) {
-			t.Errorf("app_darwin.go missing Edit->Find menu requirement %q", want)
+			t.Errorf("app_darwin.go missing requirement %q", want)
 		}
+	}
+
+	winSrc, err := os.ReadFile("app_windows.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(winSrc), "w.Bind(\"hideWindowNative\"") {
+		t.Error("app_windows.go missing hideWindowNative binding")
 	}
 }
 
