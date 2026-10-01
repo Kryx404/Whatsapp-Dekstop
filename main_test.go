@@ -883,6 +883,37 @@ func TestQuotedMessageJumpAndHighlight(t *testing.T) {
 	}
 }
 
+func TestChatNavigationShortcuts(t *testing.T) {
+	script := getInitScript("test-agent")
+	for _, want := range []string{
+		"waRunModule('chat-navigation-shortcuts'",
+		"window.triggerChatSearch",
+		"window.selectChatByIndex",
+		"getChatListRows",
+		"selectChatByIndex(idx)",
+		"triggerChatSearch(!!e.shiftKey)",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("init script missing chat navigation shortcut invariant %q", want)
+		}
+	}
+
+	source, err := os.ReadFile("app_darwin.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	darwinSrc := string(source)
+	for _, want := range []string{
+		"- (void)menuFind:(id)sender;",
+		"evaluateAppJavaScript(@\"if (window.triggerChatSearch)",
+		"[editMenu addItemWithTitle:@\"Find...\" action:@selector(menuFind:) keyEquivalent:@\"f\"];",
+	} {
+		if !strings.Contains(darwinSrc, want) {
+			t.Errorf("app_darwin.go missing Edit->Find menu requirement %q", want)
+		}
+	}
+}
+
 func TestAllPlatformsApplySavedThemeToNativeWindow(t *testing.T) {
 	cases := []struct {
 		file   string

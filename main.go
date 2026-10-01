@@ -127,6 +127,21 @@ func getInitScript(ua string) string {
 			}
 		}
 
+		function simulateClick(el) {
+			if (!el) return;
+			try { el.focus(); } catch (e) {}
+			['mousedown', 'mouseup', 'click'].forEach(function(evt) {
+				try {
+					el.dispatchEvent(new MouseEvent(evt, {
+						bubbles: true,
+						cancelable: true,
+						view: window
+					}));
+				} catch (e) {}
+			});
+			try { el.click(); } catch (e2) {}
+		}
+
 		// Go-side platform constant — more reliable than navigator.platform which is
 		// deprecated in Chrome 93+ and may return "" in newer WebView2 builds.
 		var __WA_GOOS = '` + runtime.GOOS + `';
@@ -440,21 +455,6 @@ func getInitScript(ua string) string {
 			var recentNotifications = new Map();
 			var recentNotificationsByTitle = new Map();
 			var notifSeq = 0;
-
-			function simulateClick(el) {
-				if (!el) return;
-				try { el.focus(); } catch (e) {}
-				['mousedown', 'mouseup', 'click'].forEach(function(evt) {
-					try {
-						el.dispatchEvent(new MouseEvent(evt, {
-							bubbles: true,
-							cancelable: true,
-							view: window
-						}));
-					} catch (e) {}
-				});
-				try { el.click(); } catch (e2) {}
-			}
 
 			function openChatByTitle(chatTitle) {
 				if (!chatTitle) return false;
@@ -6208,6 +6208,186 @@ func getInitScript(ua string) string {
 					jumpToQuotedMessage(info, quoteBox, msgContainer);
 				}, 40);
 			}, false);
+		});
+
+		// Chat Navigation & Search Shortcuts (Cmd/Ctrl + F, Cmd/Ctrl + 1..9)
+		// Matches WhatsApp Desktop behavior:
+		// - Cmd/Ctrl+F: search inside active conversation or chat list
+		// - Cmd/Ctrl+Shift+F: search chat list directly
+		// - Cmd/Ctrl+1..9: switch directly to 1st..9th chat in conversation list
+		waRunModule('chat-navigation-shortcuts', function() {
+			function triggerChatSearch(forceGlobal) {
+				if (document.getElementById('wa-app-lock-screen')) return false;
+
+				// 1. In-chat search if not forced global and #main conversation is open
+				if (!forceGlobal) {
+					var main = document.getElementById('main');
+					if (main) {
+						var inChatInput = document.querySelector(
+							'[data-testid="drawer-right"] [contenteditable="true"], ' +
+							'[data-testid="drawer-right"] input, ' +
+							'[data-testid="search-input"], ' +
+							'[data-testid="conversation-search-input"], ' +
+							'div[data-testid="drawer-right"] [role="textbox"]'
+						);
+						if (inChatInput) {
+							inChatInput.focus();
+							try { inChatInput.select(); } catch (e) {}
+							try { document.execCommand('selectAll', false, null); } catch (e2) {}
+							return true;
+						}
+
+						var searchBtn = main.querySelector(
+							'header [data-testid="search"], ' +
+							'header [data-icon="search"], ' +
+							'header [data-icon="search-alt"], ' +
+							'header [role="button"][aria-label*="Search" i], ' +
+							'header [role="button"][aria-label*="Cari" i], ' +
+							'header button[aria-label*="Search" i], ' +
+							'header button[aria-label*="Cari" i]'
+						);
+						if (searchBtn) {
+							simulateClick(searchBtn.closest('button, [role="button"]') || searchBtn);
+							setTimeout(function() {
+								var inp = document.querySelector(
+									'[data-testid="drawer-right"] [contenteditable="true"], ' +
+									'[data-testid="drawer-right"] input, ' +
+									'[data-testid="search-input"], ' +
+									'[data-testid="conversation-search-input"]'
+								);
+								if (inp) {
+									inp.focus();
+									try { inp.select(); } catch (e3) {}
+								}
+							}, 80);
+							return true;
+						}
+					}
+				}
+
+				// 2. Global chat list search in #side
+				var sideSearch = document.querySelector(
+					'#side [contenteditable="true"][data-tab="3"], ' +
+					'#side [data-testid="chat-list-search"], ' +
+					'#side input[type="text"], ' +
+					'#side [role="textbox"], ' +
+					'#side [contenteditable="true"]'
+				);
+				if (sideSearch) {
+					sideSearch.focus();
+					try { sideSearch.select(); } catch (e) {}
+					try { document.execCommand('selectAll', false, null); } catch (e4) {}
+					return true;
+				}
+
+				var sideBtn = document.querySelector(
+					'#side [data-icon="search"], ' +
+					'#side [data-testid="search"], ' +
+					'#side [role="button"][aria-label*="Search" i], ' +
+					'#side [role="button"][aria-label*="Cari" i]'
+				);
+				if (sideBtn) {
+					simulateClick(sideBtn.closest('button, [role="button"]') || sideBtn);
+					setTimeout(function() {
+						var inp = document.querySelector(
+							'#side [contenteditable="true"], ' +
+							'#side [data-testid="chat-list-search"], ' +
+							'#side input[type="text"]'
+						);
+						if (inp) {
+							inp.focus();
+							try { inp.select(); } catch (e5) {}
+						}
+					}, 60);
+					return true;
+				}
+
+				return false;
+			}
+			window.triggerChatSearch = triggerChatSearch;
+
+			function getChatListRows() {
+				var side = document.querySelector('#pane-side') ||
+					document.querySelector('[data-testid="chat-list"]') ||
+					document.querySelector('#side');
+				if (!side) return [];
+
+				var rawRows = side.querySelectorAll('[role="row"], [data-testid="cell-frame-container"]');
+				var list = [];
+				var seen = new Set();
+
+				for (var i = 0; i < rawRows.length; i++) {
+					var r = rawRows[i];
+					var row = (r.closest && r.closest('[role="row"]')) || r;
+					if (seen.has(row)) continue;
+					seen.add(row);
+
+					if (row.querySelector && row.querySelector('[data-icon*="archive" i], [data-testid*="archive" i], [data-icon*="lock" i]')) continue;
+					var txt = (row.textContent || '').trim();
+					if (/^(archived|diarsipkan|locked chats|chat yang dikunci)/i.test(txt)) continue;
+
+					list.push(row);
+				}
+
+				list.sort(function(a, b) {
+					var rA = a.getBoundingClientRect ? a.getBoundingClientRect().top : 0;
+					var rB = b.getBoundingClientRect ? b.getBoundingClientRect().top : 0;
+					return rA - rB;
+				});
+
+				return list;
+			}
+
+			function selectChatByIndex(idx) {
+				if (idx < 0) return false;
+				if (document.getElementById('wa-app-lock-screen')) return false;
+
+				function doClickRow() {
+					var rows = getChatListRows();
+					if (rows && rows.length > idx) {
+						var target = rows[idx];
+						target.scrollIntoView({ block: 'nearest' });
+						simulateClick(target);
+						return true;
+					}
+					return false;
+				}
+
+				var scrollEl = document.querySelector('#pane-side');
+				if (scrollEl && scrollEl.scrollTop > 30) {
+					scrollEl.scrollTop = 0;
+					scrollEl.dispatchEvent(new Event('scroll', { bubbles: true }));
+					setTimeout(doClickRow, 70);
+					return true;
+				}
+
+				return doClickRow();
+			}
+			window.selectChatByIndex = selectChatByIndex;
+
+			window.addEventListener('keydown', function(e) {
+				if (document.getElementById('wa-app-lock-screen')) return;
+
+				var isMod = e.metaKey || e.ctrlKey;
+				if (!isMod) return;
+
+				// Cmd+F or Cmd+Shift+F (Search)
+				if (!e.altKey && (e.key === 'f' || e.key === 'F' || e.code === 'KeyF')) {
+					e.preventDefault();
+					e.stopPropagation();
+					triggerChatSearch(!!e.shiftKey);
+					return;
+				}
+
+				// Cmd+1..9 (Jump to chat)
+				if (!e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
+					e.preventDefault();
+					e.stopPropagation();
+					var idx = parseInt(e.key, 10) - 1;
+					selectChatByIndex(idx);
+					return;
+				}
+			}, true);
 		});
 
 		// --- Core shortcuts (self-contained) ------------------------------

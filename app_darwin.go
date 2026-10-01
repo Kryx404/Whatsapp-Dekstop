@@ -832,6 +832,7 @@ static void setNativeWindowTheme(void* nsWindowPtr, const char* themeStr) {
 - (void)menuReloadChat:(id)sender;
 - (void)menuHardRefresh:(id)sender;
 - (void)menuShowApp:(id)sender;
+- (void)menuFind:(id)sender;
 - (void)menuSetThemeDark:(id)sender;
 - (void)menuSetThemeLight:(id)sender;
 - (void)menuSetThemeSystem:(id)sender;
@@ -887,6 +888,9 @@ static void setNativeWindowTheme(void* nsWindowPtr, const char* themeStr) {
     dispatch_async(dispatch_get_main_queue(), ^{
         showAppWindow();
     });
+}
+- (void)menuFind:(id)sender {
+    evaluateAppJavaScript(@"if (window.triggerChatSearch) { window.triggerChatSearch(false); }");
 }
 - (void)menuSetThemeDark:(id)sender {
     NSWindow* win = appWindow();
@@ -1051,6 +1055,9 @@ static void setupMacOSMenuBar(void) {
         [editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
         [editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
         [editMenu addItemWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"];
+        [editMenu addItem:[NSMenuItem separatorItem]];
+        NSMenuItem* findItem = [editMenu addItemWithTitle:@"Find..." action:@selector(menuFind:) keyEquivalent:@"f"];
+        [findItem setTarget:g_menuBridge];
         [editMenuItem setSubmenu:editMenu];
         [mainMenu addItem:editMenuItem];
 
