@@ -5971,6 +5971,245 @@ func getInitScript(ua string) string {
 			}, true);
 		});
 
+		// Quoted Message Jump & Highlight (matches WhatsApp Official Desktop)
+		// When clicking a quoted reply bubble in chat, smoothly scrolls to the
+		// original message and pulses a highlight animation. If the target message
+		// is outside the virtualized DOM buffer, paginates backwards to load earlier
+		// history until the message is located.
+		waRunModule('quoted-message-jump', function() {
+			var style = document.createElement('style');
+			style.textContent = '' +
+				'@keyframes wa-quoted-highlight-pulse {' +
+				'  0% { background-color: rgba(0, 168, 132, 0.45) !important; outline: 2px solid #00a884 !important; }' +
+				'  35% { background-color: rgba(0, 168, 132, 0.3) !important; outline: 2px solid rgba(0, 168, 132, 0.4) !important; }' +
+				'  100% { background-color: transparent !important; outline: 2px solid transparent !important; }' +
+				'}' +
+				'.wa-quoted-highlight-flash {' +
+				'  animation: wa-quoted-highlight-pulse 1.8s cubic-bezier(0.2, 0.8, 0.2, 1) !important;' +
+				'  border-radius: 8px !important;' +
+				'  transition: background-color 0.3s ease !important;' +
+				'}' +
+				'[data-testid="quoted-message"], [role="button"]._ak8j, div._ak8j {' +
+				'  cursor: pointer !important;' +
+				'}';
+
+			function injectStyle() {
+				var head = document.head || document.documentElement || document.body;
+				if (head) {
+					head.appendChild(style);
+				} else {
+					document.addEventListener('DOMContentLoaded', function() {
+						var h = document.head || document.documentElement || document.body;
+						if (h) h.appendChild(style);
+					}, { once: true });
+				}
+			}
+			injectStyle();
+
+			function getChatScrollContainer() {
+				var main = document.getElementById('main');
+				if (!main) return null;
+				var candidates = main.querySelectorAll('div');
+				for (var i = 0; i < candidates.length; i++) {
+					var el = candidates[i];
+					if (el.scrollHeight > el.clientHeight && el.clientHeight > 180) {
+						var overflow = window.getComputedStyle(el).overflowY;
+						if (overflow === 'auto' || overflow === 'scroll') return el;
+					}
+				}
+				return main.querySelector('[data-testid="conversation-panel-messages"]') || main;
+			}
+
+			function extractQuotedInfo(quoteEl, msgContainer) {
+				var info = {
+					stanzaId: '',
+					fullId: '',
+					sender: '',
+					text: ''
+				};
+
+				// 1. Fiber inspection
+				try {
+					var checkNodes = [quoteEl, quoteEl.parentElement, msgContainer];
+					for (var n = 0; n < checkNodes.length; n++) {
+						var node = checkNodes[n];
+						if (!node) continue;
+						var fiberKey = Object.keys(node).find(function(k) {
+							return k.indexOf('__reactFiber') === 0 || k.indexOf('__reactInternalInstance') === 0;
+						});
+						if (!fiberKey) continue;
+						var curr = node[fiberKey];
+						var depth = 0;
+						while (curr && depth < 20) {
+							var props = curr.memoizedProps;
+							if (props) {
+								var m = props.msg || props.message || (props.item && props.item.id ? props.item : null);
+								if (m) {
+									if (m.quotedStanzaID) info.stanzaId = String(m.quotedStanzaID);
+									if (m.quotedParticipant) info.sender = String(m.quotedParticipant);
+									if (m.quotedMsg) {
+										if (typeof m.quotedMsg.id === 'string') info.fullId = m.quotedMsg.id;
+										else if (m.quotedMsg.id && m.quotedMsg.id._serialized) info.fullId = m.quotedMsg.id._serialized;
+										if (m.quotedMsg.body) info.text = String(m.quotedMsg.body);
+										else if (m.quotedMsg.caption) info.text = String(m.quotedMsg.caption);
+									}
+								}
+								if (props.quotedMsg) {
+									var qm = props.quotedMsg;
+									if (typeof qm.id === 'string') info.fullId = qm.id;
+									else if (qm.id && qm.id._serialized) info.fullId = qm.id._serialized;
+									if (qm.stanzaId) info.stanzaId = String(qm.stanzaId);
+									if (qm.body) info.text = String(qm.body);
+									else if (qm.caption) info.text = String(qm.caption);
+								}
+							}
+							if (info.stanzaId || info.fullId) break;
+							curr = curr.return;
+							depth++;
+						}
+						if (info.stanzaId || info.fullId) break;
+					}
+				} catch (e) {}
+
+				// 2. DOM text extraction fallback
+				try {
+					var senderEl = quoteEl.querySelector('[dir="auto"], strong, ._ak8l, [class*="author"], [class*="sender"]');
+					if (senderEl && !info.sender) {
+						info.sender = (senderEl.textContent || '').trim();
+					}
+					var spans = quoteEl.querySelectorAll('span, div');
+					for (var i = 0; i < spans.length; i++) {
+						var s = spans[i];
+						if (s === senderEl || (senderEl && senderEl.contains(s))) continue;
+						if (!s.children || s.children.length === 0) {
+							var txt = (s.textContent || '').trim();
+							txt = txt.replace(/^[\uD800-\uDBFF\uDC00-\uDFFF\s\W\u2500-\u2BFF]+/, '').trim();
+							if (txt && txt.length > 2 && (!info.text || txt.length > info.text.length)) {
+								info.text = txt;
+							}
+						}
+					}
+				} catch (e2) {}
+
+				return info;
+			}
+
+			function findTargetMessageInDom(info, quoteEl, msgContainer) {
+				if (!info) return null;
+				var main = document.getElementById('main');
+				if (!main) return null;
+
+				// Match by stanza ID
+				if (info.stanzaId) {
+					var matchStanza = main.querySelector('div[data-id*="' + info.stanzaId + '"], [role="row"][data-id*="' + info.stanzaId + '"]');
+					if (matchStanza && matchStanza !== msgContainer && !matchStanza.contains(quoteEl)) {
+						return matchStanza;
+					}
+				}
+
+				// Match by full ID
+				if (info.fullId) {
+					var matchFull = main.querySelector('div[data-id="' + info.fullId + '"], [role="row"][data-id="' + info.fullId + '"]');
+					if (matchFull && matchFull !== msgContainer && !matchFull.contains(quoteEl)) {
+						return matchFull;
+					}
+				}
+
+				// Match by text snippet
+				if (info.text && info.text.length > 2) {
+					var query = info.text.toLowerCase();
+					var rows = main.querySelectorAll('[role="row"], [data-testid*="msg-container"], div[data-id]');
+					for (var i = rows.length - 1; i >= 0; i--) {
+						var row = rows[i];
+						if (row === msgContainer || row.contains(quoteEl)) continue;
+						var textNodes = row.querySelectorAll('span.selectable-text, span[dir="ltr"], span[dir="rtl"], div.copyable-text, span[dir="auto"]');
+						for (var j = 0; j < textNodes.length; j++) {
+							var node = textNodes[j];
+							if (node.closest && node.closest('[data-testid="quoted-message"], [data-testid*="quoted"], [role="button"][class*="_ak8j"], div._ak8j')) continue;
+							var content = (node.textContent || '').trim().toLowerCase();
+							if (content && (content === query || content.indexOf(query) !== -1 || query.indexOf(content) !== -1)) {
+								return row;
+							}
+						}
+					}
+				}
+
+				return null;
+			}
+
+			function highlightAndScrollTo(target) {
+				if (!target) return;
+				try {
+					target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+				} catch (e) {
+					target.scrollIntoView(true);
+				}
+				var bubble = target.querySelector('div[class*="_ak"], div[class*="message"], [data-testid="msg-container"]') || target;
+				bubble.classList.remove('wa-quoted-highlight-flash');
+				void bubble.offsetWidth;
+				bubble.classList.add('wa-quoted-highlight-flash');
+				setTimeout(function() {
+					bubble.classList.remove('wa-quoted-highlight-flash');
+				}, 1900);
+			}
+
+			function jumpToQuotedMessage(info, quoteEl, msgContainer) {
+				var target = findTargetMessageInDom(info, quoteEl, msgContainer);
+				if (target) {
+					highlightAndScrollTo(target);
+					return;
+				}
+
+				var scrollContainer = getChatScrollContainer();
+				if (!scrollContainer) return;
+
+				var attempts = 0;
+				var maxAttempts = 25;
+				var timer = setInterval(function() {
+					attempts++;
+					var found = findTargetMessageInDom(info, quoteEl, msgContainer);
+					if (found) {
+						clearInterval(timer);
+						highlightAndScrollTo(found);
+						return;
+					}
+					if (attempts >= maxAttempts) {
+						clearInterval(timer);
+						return;
+					}
+					scrollContainer.scrollTop = 5;
+					try {
+						scrollContainer.dispatchEvent(new Event('scroll', { bubbles: true }));
+					} catch (e) {}
+				}, 120);
+			}
+
+			document.addEventListener('click', function(e) {
+				var target = e.target;
+				if (!target || typeof target.closest !== 'function') return;
+
+				var quoteBox = target.closest(
+					'[data-testid="quoted-message"], ' +
+					'[data-testid*="quoted"], ' +
+					'[role="button"][class*="_ak8j"], ' +
+					'div._ak8j, ' +
+					'[aria-label*="Quoted Message" i], ' +
+					'[aria-label*="Pesan yang dikutip" i]'
+				);
+				if (!quoteBox) return;
+
+				var main = document.getElementById('main');
+				if (!main || !main.contains(quoteBox)) return;
+
+				var msgContainer = quoteBox.closest('[data-testid*="msg-container"], [role="row"], div[data-id], .message-in, .message-out');
+				var info = extractQuotedInfo(quoteBox, msgContainer);
+
+				setTimeout(function() {
+					jumpToQuotedMessage(info, quoteBox, msgContainer);
+				}, 40);
+			}, false);
+		});
+
 		// --- Core shortcuts (self-contained) ------------------------------
 		// Registered outside the modules above on purpose. The Settings button
 		// and Cmd/Ctrl+, used to disappear together on Windows because a single

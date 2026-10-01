@@ -865,6 +865,24 @@ func TestNotificationClickNavigatesToChat(t *testing.T) {
 	}
 }
 
+func TestQuotedMessageJumpAndHighlight(t *testing.T) {
+	script := getInitScript("test-agent")
+	for _, want := range []string{
+		"waRunModule('quoted-message-jump'",
+		"wa-quoted-highlight-pulse",
+		"wa-quoted-highlight-flash",
+		"jumpToQuotedMessage",
+		"extractQuotedInfo",
+		"findTargetMessageInDom",
+		"highlightAndScrollTo",
+		"getChatScrollContainer",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("init script missing quoted message jump invariant %q", want)
+		}
+	}
+}
+
 func TestAllPlatformsApplySavedThemeToNativeWindow(t *testing.T) {
 	cases := []struct {
 		file   string
